@@ -245,3 +245,120 @@ def grid_search(
             best_params = params
 
     return best_params, all_results
+
+
+def weighted_ridge_regression(y, tx, lambda_, w_pos=1.0):
+    """Cost-sensitive sample-weighted Ridge Regression in pure NumPy.
+
+    Solves the exact closed-form normal equations:
+        w* = (X^T W X + 2N * lambda * I)^(-1) X^T W y
+    where W = diag(w_1, ..., w_N), w_i = w_pos for positive class (+1),
+    and 1.0 for negative class (-1).
+
+    Args:
+        y (np.ndarray): Labels array of shape (N,), values in {-1, 1}.
+        tx (np.ndarray): Feature matrix of shape (N, D).
+        lambda_ (float): Regularization parameter >= 0.
+        w_pos (float): Relative loss weight on positive samples.
+
+    Returns:
+        tuple: (w, loss)
+    """
+    N, D = tx.shape
+    sw = np.where(y == 1, w_pos, 1.0)
+    W_tx = tx * sw[:, np.newaxis]
+    A = tx.T @ W_tx + 2.0 * N * lambda_ * np.eye(D)
+    b = tx.T @ (sw * y)
+    w = np.linalg.solve(A, b)
+
+    e = y - tx @ w
+    loss = (1.0 / (2.0 * N)) * np.sum(sw * (e**2)) + lambda_ * np.sum(w**2)
+    return w, loss
+
+
+def cross_validate_weighted_ridge(
+    y,
+    x,
+    k_indices,
+    feature_names=None,
+    lambda_=1e-4,
+    w_pos=2.5,
+    threshold_candidates=None,
+):
+    """Run stratified 5-fold cross-validation for Cost-Sensitive Weighted Ridge Regression.
+
+    Args:
+        y (np.ndarray): Labels array of shape (N,), values in {-1, 1}.
+        x (np.ndarray): Feature matrix of shape (N, D).
+        k_indices (list): Stratified fold splits.
+        feature_names (list, optional): List of feature names. If provided, uses
+            build_streamlined_features to construct the 205-dim design matrix.
+        lambda_ (float): Regularization strength.
+        w_pos (float): Positive class weight.
+        threshold_candidates (np.ndarray, optional): Threshold candidates.
+
+    Returns:
+        dict: Detailed cross-validation metrics across all folds.
+    """
+    if threshold_candidates is None:
+        threshold_candidates = np.linspace(-1.0, 1.0, 101)
+
+    k_fold = len(k_indices)
+    fold_accuracies = []
+    fold_precisions = []
+    fold_recalls = []
+    fold_f1s = []
+    fold_balanced_accs = []
+    fold_thresholds = []
+
+    for k in range(k_fold):
+        val_idx = k_indices[k]
+        tr_idx = np.concatenate([k_indices[i] for i in range(k_fold) if i != k])
+
+        x_tr, y_tr = x[tr_idx], y[tr_idx]
+        x_val, y_val = x[val_idx], y[val_idx]
+
+        if feature_names is not None:
+            from feature_engineering import build_streamlined_features
+
+            tx_tr, tx_val, _ = build_streamlined_features(
+                x_tr=x_tr, x_te=x_val, feature_names=feature_names
+            )
+        else:
+            tx_tr, tx_val = preprocess_fold(x_tr, x_val, add_bias=True)
+
+        w, _ = weighted_ridge_regression(
+            y_tr.astype(float), tx_tr, lambda_=lambda_, w_pos=w_pos
+        )
+
+        scores_tr = tx_tr @ w
+        tau, _ = best_threshold(y_tr, scores_tr, threshold_candidates)
+        fold_thresholds.append(tau)
+
+        scores_val = tx_val @ w
+        y_pred = predict_labels(scores_val, tau)
+
+        acc = accuracy(y_val, y_pred)
+        prec, rec, f1 = precision_recall_f1(y_val, y_pred)
+        cm = confusion_matrix(y_val, y_pred)
+
+        fold_accuracies.append(acc)
+        fold_precisions.append(prec)
+        fold_recalls.append(rec)
+        fold_f1s.append(f1)
+        fold_balanced_accs.append(cm["balanced_accuracy"])
+
+    return {
+        "accuracy_mean": float(np.mean(fold_accuracies)),
+        "accuracy_std": float(np.std(fold_accuracies)),
+        "precision_mean": float(np.mean(fold_precisions)),
+        "precision_std": float(np.std(fold_precisions)),
+        "recall_mean": float(np.mean(fold_recalls)),
+        "recall_std": float(np.std(fold_recalls)),
+        "f1_mean": float(np.mean(fold_f1s)),
+        "f1_std": float(np.std(fold_f1s)),
+        "balanced_accuracy_mean": float(np.mean(fold_balanced_accs)),
+        "balanced_accuracy_std": float(np.std(fold_balanced_accs)),
+        "threshold_mean": float(np.mean(fold_thresholds)),
+        "thresholds": fold_thresholds,
+    }

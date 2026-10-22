@@ -38,3 +38,5 @@
 | M4-Step2-Nominal | 2026-10-22 | Step 1 + Nominal One-Hot (`MARITAL`, `EMPLOY1`, `_RACE`) | 0.8724 | 0.4288 +/- 0.0026 | 0.7234 | - |
 | M4-Step3-Interactions | 2026-10-22 | Step 2 + 5 Clinical Non-linear Interaction Cross-Terms | 0.8754 | 0.4298 +/- 0.0021 | 0.7204 | - |
 | M4-Step4-Tuned | 2026-10-22 | Step 3 + Tuned Hyperparameters (lambda=1e-4, gamma=0.15) | 0.8769 | 0.4311 +/- 0.0018 | 0.7195 | Sub-02 |
+| M4-Streamlined-Ridge | 2026-10-22 | Cost-Sensitive Ridge (w_pos=3.0, 205 dims: 197 base + 5 cross + 2 quad) | 0.8756 | 0.4309 +/- 0.0032 | 0.7211 | 7.5s (Sub-02b) |
+| M4-Streamlined-Log | 2026-10-22 | Regularized Logistic on Streamlined 205-dim space | 0.8741 | 0.4307 +/- 0.0028 | 0.7229 | 52.5s |

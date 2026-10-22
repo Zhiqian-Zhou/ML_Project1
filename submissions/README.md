@@ -40,15 +40,60 @@ Evaluated across baselines to establish the lower bound performance on sanitized
 
 ---
 
-## 3. Critical Findings & Pitfalls Avoided (For Teammates)
+## 4. Negative Results & Pruning Rationale (What Didn't Work)
+
+To ensure scientific rigor and avoid confirmation bias, we explicitly document empirical negative results:
+
+1. **Indiscriminate Missingness Indicator Masks (MNAR) Acted as Noise**:
+   - Appending 114 binary missingness indicators $M_{ij} = \mathbb{I}(X_{ij} \text{ was NaN})$ increased the feature dimensionality by $+57.6\%$ (from 198 to 312 dims).
+   - Despite this substantial increase in complexity, cross-validation $F_1$ barely budged ($+0.0006$, from $0.4277 \to 0.4283$).
+   - *Rationale*: While specific conditional skip patterns (like `HAREHAB1_ANSWERED`) carry strong deterministic signals, the vast majority of missing values in BRFSS survey questions arise from regional questionnaire module omissions (split-form surveying) rather than individual health status. Appending 114 masks primarily introduced high-dimensional collinearity, slower gradient descent convergence, and noise.
+
+2. **Nominal One-Hot Categorical Expansion Added Sparsity Without Margin Gain**:
+   - One-hot encoding `MARITAL`, `EMPLOY1`, and `_RACE` expanded the feature space by an additional 16 dimensions (328 dims) but produced a negligible $+0.0005$ F1 gain.
+   - *Rationale*: Although theoretical linear distortion is removed, the low-prevalence dummy categories (e.g. `_RACE == 5` with 0.3% frequency) contributed near-zero gradient signal and induced matrix ill-conditioning.
+
+3. **Occam's Razor & Pipeline Simplification**:
+   - By pruning these 130 redundant and noisy indicator columns, we restored a clean, highly interpretable **205-dimensional design matrix**:
+     - 197 clean base features.
+     - 5 verified clinical non-linear cross-terms (`HBP_x_CHOL`, `AGE_x_HBP`, `AGE_x_SMOKE`, `AGE_x_BMI`, `INACTIVE_x_POORHLTH`).
+     - 2 physiological quadratic risk terms (`_BMI5^2`, `_AGEG5YR^2`).
+   - This compact representation eliminates feature bloat, reduces memory overhead, and runs in sub-second time.
+
+---
+
+## 5. Cost-Sensitive Class-Weighted Learning Benchmark (Streamlined 205 Dims)
+
+Because the dataset exhibits severe positive class imbalance (8.83% positive), unweighted loss gradients are heavily dominated by the majority negative class. We implemented pure-NumPy sample-weighted Ridge Regression via the exact closed-form normal equations:
+$$\mathbf{w}^* = (\mathbf{X}^T \mathbf{W} \mathbf{X} + 2N\lambda \mathbf{I})^{-1} \mathbf{X}^T \mathbf{W} \mathbf{y}$$
+where sample weight $w_i = w_{pos}$ for positive cases ($y_i = +1$), and $1.0$ for negative cases ($y_i = -1$).
+
+### Stratified 5-Fold Cross-Validation Comparison:
+
+| Model Architecture | Positive Weight ($w_{pos}$) | Val Accuracy | Val Precision | Val Recall | Balanced Acc | Val F1 (+1) | Calibrated $\tau^*$ | 5-Fold Time |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Weighted Ridge** | $1.0$ | $87.39\%$ | $0.3565$ | $53.10\%$ | $71.91\%$ | $0.4265 \pm 0.0032$ | $-0.5560$ | **7.71s** |
+| **Weighted Ridge** | $1.5$ | $87.36\%$ | $0.3570$ | $53.70\%$ | $72.16\%$ | $0.4287 \pm 0.0027$ | $-0.4200$ | **8.16s** |
+| **Weighted Ridge** | $2.0$ | $87.27\%$ | $0.3558$ | $\mathbf{54.34\%}$ | $\mathbf{72.40\%}$ | $0.4299 \pm 0.0030$ | $-0.3160$ | **7.59s** |
+| **Weighted Ridge** | $2.5$ | $87.35\%$ | $0.3574$ | $54.18\%$ | $72.37\%$ | $0.4306 \pm 0.0031$ | $-0.2240$ | **7.09s** |
+| **Weighted Ridge** | **$3.0$** | $\mathbf{87.56\%}$ | $\mathbf{0.3615}$ | $53.35\%$ | $72.11\%$ | $\mathbf{0.4309 \pm 0.0032}$ | $-0.1400$ | **7.53s** |
+| **Weighted Ridge** | $5.0$ | $87.52\%$ | $0.3608$ | $53.41\%$ | $72.12\%$ | $0.4305 \pm 0.0031$ | $+0.0720$ | **8.73s** |
+| **Regularized Logistic** | $1.0$ | $87.41\%$ | $0.3586$ | $53.92\%$ | $72.29\%$ | $0.4307 \pm 0.0028$ | $+0.2080$ | 52.54s |
+
+### Key Insights:
+1. **Cost-Sensitivity Matches Iterative Gradient Descent**: Weighted Ridge Regression ($w_{pos}=3.0$) matches Regularized Logistic Regression in F1 ($0.4309$ vs $0.4307$), but runs in **7.53 seconds (7.0x faster)**.
+2. **Threshold Centering**: Increasing $w_{pos}$ from $1.0 \to 3.0 \to 5.0$ naturally shifts raw decision scores toward zero ($\tau^*$ shifts from $-0.556 \to -0.140 \to +0.072$), reducing score skewness caused by extreme class imbalance.
+
+---
+
+## 6. Critical Findings & Pitfalls Avoided (For Teammates)
 
 Please review these findings before writing modeling or preprocessing code:
 
 1. **Extreme Class Imbalance (8.83% Positives)**:
    - Always predicting `-1` gives **91.17% accuracy**, but **0.0000 F1**.
    - **Never judge models by accuracy alone!** AIcrowd leaderboard ranking is driven by positive class F1.
-   - Default thresholds ($\tau = 0.5$ for Logistic, $\tau = 0.0$ for Ridge) severely penalize positive recall.
-   - **Solution**: Dynamic threshold tuning $\tau^* \in [0.05, 0.50]$ on training folds improves F1 from $0.23 \to 0.43$ and detects $>54\%$ of true cardiovascular cases.
+   - Cost-sensitive weighting ($w_{pos} \in [2.5, 3.0]$) directly counters majority class dominance in loss gradients.
 
 2. **CDC BRFSS Survey Code Traps**:
    - `PHYSHLTH`, `MENTHLTH`, `POORHLTH`: Code `88` represents **0 days of illness** (healthy), NOT 88 days! Over 204,000 respondents answered `88`. Treating it as numeric treats healthy people as chronically ill.
@@ -65,4 +110,5 @@ Please review these findings before writing modeling or preprocessing code:
 4. **I/O Speedup via Native Binary Cache**:
    - Reading `x_train.csv` takes ~11s.
    - Use `data/processed/x_train.npy` and `y_train.npy` (197 sanitized features, 0 sentinels). Loads in **30 ms (349x faster)**.
+
 

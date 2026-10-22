@@ -485,8 +485,8 @@ def preprocess(x_train, x_test, feature_names, config):
     from feature_engineering import engineer_features_fold
 
     max_nan_ratio = config.get("max_nan_ratio", 0.85)
-    add_nan_indicators = config.get("add_nan_indicators", True)
-    one_hot_nominal = config.get("one_hot_nominal", True)
+    add_nan_indicators = config.get("add_nan_indicators", False)
+    one_hot_nominal = config.get("one_hot_nominal", False)
     clinical_interactions = config.get("clinical_interactions", True)
     drop_first_nominal = config.get("drop_first_nominal", True)
     poly_degree = config.get("poly_degree", 1)
