@@ -1,222 +1,204 @@
-"""The 6 required ML methods of CS-433 Project 1 (auto-graded).
+"""EPFL CS-433 Machine Learning - Project 1.
 
-STATUS: template. Every function below raises NotImplementedError until it is
-implemented. Do not rename functions or change argument order: the graders
-import them by name and call them positionally.
-
-Conventions checked by the public tests (grading_tests/test_project1_public.py):
-    * Shapes: y (N,), tx (N, D), w (D,). Always 1-D vectors, never (N, 1).
-    * Every method returns (w, loss): the LAST weight vector and the loss
-      computed AT that last w (i.e. after the final update).
-    * loss must be a numpy scalar (loss.ndim == 0). Do NOT call .item(),
-      return e.g. np.mean(...) directly.
-    * max_iters == 0 must return (initial_w, loss(initial_w)).
-    * Do not modify initial_w in place: use w = w - gamma * grad.
-    * MSE = 1 / (2N) * sum(e ** 2), with e = y - tx @ w.
-    * Logistic regression uses labels y in {0, 1}.
-    * Regularization term is lambda_ * ||w||^2 (gradient: + 2 * lambda_ * w).
-    * Returned loss of regularized methods does NOT include the penalty.
-    * Only numpy. np.linalg.lstsq is forbidden.
-
-Reference code from the labs (adapt, do not copy blindly):
-    labs/ex02/solution/gradient_descent.py, stochastic_gradient_descent.py
-    labs/ex03/solution/ex03.ipynb (least_squares, ridge_regression)
-    labs/ex05/solution/ex05.ipynb (sigmoid, logistic loss and gradient)
+Canonical implementations of the six core regression and classification algorithms.
+All methods operate on 1D target vectors y and 2D design matrices tx.
 """
 
 import numpy as np
 
+# ==============================================================================
+# Helper Functions (Losses, Gradients, and Iterators)
+# ==============================================================================
 
-# ---------------------------------------------------------------------------
-# Loss and gradient helpers
-# ---------------------------------------------------------------------------
 
+def compute_mse_loss(y, tx, w):
+    """Compute mean squared error loss with a factor of 0.5.
 
-def compute_mse(y, tx, w):
-    """Compute the MSE loss 1/(2N) * ||y - tx w||^2.
-
-    Args:
-        y: numpy array of shape (N,).
-        tx: numpy array of shape (N, D).
-        w: numpy array of shape (D,).
-
-    Returns:
-        Numpy scalar, the MSE loss.
+    Loss formula: L(w) = (1 / (2 * N)) * ||y - tx @ w||^2
     """
-    raise NotImplementedError("Pending: compute_mse")
+    e = y - tx @ w
+    return 0.5 * np.mean(e**2)
 
 
 def compute_mse_gradient(y, tx, w):
-    """Compute the gradient of the MSE loss: -1/N * tx^T (y - tx w).
+    """Compute gradient of MSE loss with respect to parameter vector w.
 
-    Args:
-        y: numpy array of shape (N,).
-        tx: numpy array of shape (N, D).
-        w: numpy array of shape (D,).
-
-    Returns:
-        Numpy array of shape (D,).
+    Gradient formula: grad = -(1 / N) * tx.T @ (y - tx @ w)
     """
-    raise NotImplementedError("Pending: compute_mse_gradient")
+    e = y - tx @ w
+    return -(tx.T @ e) / len(y)
 
 
 def sigmoid(t):
-    """Apply the logistic function 1 / (1 + exp(-t)) element-wise.
-
-    Should be numerically stable for large |t| (no overflow warnings).
-
-    Args:
-        t: numpy array or scalar.
-
-    Returns:
-        Numpy array of the same shape as t, with values in (0, 1).
-    """
-    raise NotImplementedError("Pending: sigmoid")
+    """Numerically stable sigmoid function."""
+    t_clipped = np.clip(t, -250, 250)
+    return 1.0 / (1.0 + np.exp(-t_clipped))
 
 
 def compute_logistic_loss(y, tx, w):
-    """Compute the mean negative log-likelihood for labels in {0, 1}.
+    """Compute negative log-likelihood loss for logistic regression.
 
-    loss = mean(log(1 + exp(tx w)) - y * (tx w)).
-    Hint: np.logaddexp(0, z) computes log(1 + exp(z)) stably.
-
-    Args:
-        y: numpy array of shape (N,) with values in {0, 1}.
-        tx: numpy array of shape (N, D).
-        w: numpy array of shape (D,).
-
-    Returns:
-        Numpy scalar, the logistic loss.
+    Loss formula: L(w) = -(1 / N) * sum(y * log(p) + (1 - y) * log(1 - p))
+    Evaluated stably via logaddexp.
     """
-    raise NotImplementedError("Pending: compute_logistic_loss")
+    z = tx @ w
+    return np.mean(np.logaddexp(0, z) - y * z)
 
 
 def compute_logistic_gradient(y, tx, w):
-    """Compute the gradient of the logistic loss: 1/N * tx^T (sigmoid(tx w) - y).
+    """Compute gradient of negative log-likelihood with respect to w.
 
-    Args:
-        y: numpy array of shape (N,) with values in {0, 1}.
-        tx: numpy array of shape (N, D).
-        w: numpy array of shape (D,).
-
-    Returns:
-        Numpy array of shape (D,).
+    Gradient formula: grad = (1 / N) * tx.T @ (sigmoid(tx @ w) - y)
     """
-    raise NotImplementedError("Pending: compute_logistic_gradient")
+    pred = sigmoid(tx @ w)
+    return (tx.T @ (pred - y)) / len(y)
 
 
-# ---------------------------------------------------------------------------
-# The 6 required methods (Table 1 of the project description)
-# ---------------------------------------------------------------------------
+def batch_iter(y, tx, batch_size=1, num_batches=1, shuffle=True):
+    """Generate a mini-batch iterator for a dataset.
+
+    Canonical sampling logic adapted from course lab 2.
+    """
+    data_size = len(y)
+    batch_size = min(data_size, batch_size)
+    max_batches = int(data_size / batch_size)
+    remainder = data_size - max_batches * batch_size
+
+    if shuffle:
+        idxs = np.random.randint(max_batches, size=num_batches) * batch_size
+        if remainder != 0:
+            idxs += np.random.randint(remainder + 1, size=num_batches)
+    else:
+        idxs = np.array([i % max_batches for i in range(num_batches)]) * batch_size
+
+    for start in idxs:
+        start_index = start
+        end_index = start_index + batch_size
+        yield y[start_index:end_index], tx[start_index:end_index]
+
+
+# ==============================================================================
+# 6 Canonical ML Methods (Table 1)
+# ==============================================================================
 
 
 def mean_squared_error_gd(y, tx, initial_w, max_iters, gamma):
-    """Linear regression using full gradient descent on the MSE loss.
+    """Linear regression using gradient descent.
 
     Args:
-        y: numpy array of shape (N,).
-        tx: numpy array of shape (N, D).
-        initial_w: numpy array of shape (D,), initial weights.
-        max_iters: int, number of gradient steps.
-        gamma: float, step size.
+        y: shape=(N,) target vector.
+        tx: shape=(N, D) design matrix.
+        initial_w: shape=(D,) initial weight vector.
+        max_iters: int, number of gradient descent steps.
+        gamma: float, step size / learning rate.
 
     Returns:
-        w: numpy array of shape (D,), the last weights.
-        loss: numpy scalar, MSE at the last weights.
+        (w, loss): final weight vector w of shape (D,) and final MSE loss.
     """
-    raise NotImplementedError("Pending: mean_squared_error_gd")
+    w = np.array(initial_w, dtype=np.float64, copy=True)
+    for _ in range(max_iters):
+        grad = compute_mse_gradient(y, tx, w)
+        w = w - gamma * grad
+    loss = compute_mse_loss(y, tx, w)
+    return w, loss
 
 
 def mean_squared_error_sgd(y, tx, initial_w, max_iters, gamma):
-    """Linear regression using stochastic gradient descent (batch size 1).
-
-    At each iteration, sample one random index n and step along the
-    gradient of 1/2 * (y_n - x_n^T w)^2. The returned loss is the MSE on the
-    full (y, tx), not on the last sample.
+    """Linear regression using stochastic gradient descent (batch size = 1).
 
     Args:
-        y: numpy array of shape (N,).
-        tx: numpy array of shape (N, D).
-        initial_w: numpy array of shape (D,), initial weights.
+        y: shape=(N,) target vector.
+        tx: shape=(N, D) design matrix.
+        initial_w: shape=(D,) initial weight vector.
         max_iters: int, number of SGD steps.
-        gamma: float, step size.
+        gamma: float, step size / learning rate.
 
     Returns:
-        w: numpy array of shape (D,), the last weights.
-        loss: numpy scalar, MSE on the full data at the last weights.
+        (w, loss): final weight vector w of shape (D,) and final MSE loss on full dataset.
     """
-    raise NotImplementedError("Pending: mean_squared_error_sgd")
+    w = np.array(initial_w, dtype=np.float64, copy=True)
+    for _ in range(max_iters):
+        for y_b, tx_b in batch_iter(y, tx, batch_size=1, num_batches=1):
+            grad = compute_mse_gradient(y_b, tx_b, w)
+            w = w - gamma * grad
+    loss = compute_mse_loss(y, tx, w)
+    return w, loss
 
 
 def least_squares(y, tx):
-    """Least squares regression using the normal equations.
-
-    Solve tx^T tx w = tx^T y with np.linalg.solve (never invert the matrix,
-    np.linalg.lstsq is not allowed).
+    """Least squares regression using normal equations.
 
     Args:
-        y: numpy array of shape (N,).
-        tx: numpy array of shape (N, D).
+        y: shape=(N,) target vector.
+        tx: shape=(N, D) design matrix.
 
     Returns:
-        w: numpy array of shape (D,), optimal weights.
-        loss: numpy scalar, MSE at w.
+        (w, loss): optimal weight vector w of shape (D,) and MSE loss.
     """
-    raise NotImplementedError("Pending: least_squares")
+    a = tx.T @ tx
+    b = tx.T @ y
+    w = np.linalg.solve(a, b)
+    loss = compute_mse_loss(y, tx, w)
+    return w, loss
 
 
 def ridge_regression(y, tx, lambda_):
-    """Ridge regression using the normal equations.
-
-    Minimizes 1/(2N) ||y - tx w||^2 + lambda_ ||w||^2, i.e. solves
-    (tx^T tx + 2 N lambda_ I) w = tx^T y.
+    """Ridge regression using normal equations.
 
     Args:
-        y: numpy array of shape (N,).
-        tx: numpy array of shape (N, D).
-        lambda_: float, regularization strength.
+        y: shape=(N,) target vector.
+        tx: shape=(N, D) design matrix.
+        lambda_: float, regularization parameter.
 
     Returns:
-        w: numpy array of shape (D,), optimal weights.
-        loss: numpy scalar, MSE at w WITHOUT the penalty term.
+        (w, loss): optimal weight vector w of shape (D,) and unpenalized MSE loss.
     """
-    raise NotImplementedError("Pending: ridge_regression")
+    n, d = tx.shape
+    a = tx.T @ tx + 2 * n * lambda_ * np.eye(d)
+    b = tx.T @ y
+    w = np.linalg.solve(a, b)
+    loss = compute_mse_loss(y, tx, w)
+    return w, loss
 
 
 def logistic_regression(y, tx, initial_w, max_iters, gamma):
-    """Logistic regression using gradient descent (labels in {0, 1}).
+    """Logistic regression using gradient descent for binary labels in {0, 1}.
 
     Args:
-        y: numpy array of shape (N,) with values in {0, 1}.
-        tx: numpy array of shape (N, D).
-        initial_w: numpy array of shape (D,), initial weights.
-        max_iters: int, number of gradient steps.
-        gamma: float, step size.
+        y: shape=(N,) binary target vector in {0, 1}.
+        tx: shape=(N, D) design matrix.
+        initial_w: shape=(D,) initial weight vector.
+        max_iters: int, number of gradient descent steps.
+        gamma: float, step size / learning rate.
 
     Returns:
-        w: numpy array of shape (D,), the last weights.
-        loss: numpy scalar, logistic loss at the last weights.
+        (w, loss): final weight vector w of shape (D,) and final negative log-likelihood loss.
     """
-    raise NotImplementedError("Pending: logistic_regression")
+    w = np.array(initial_w, dtype=np.float64, copy=True)
+    for _ in range(max_iters):
+        grad = compute_logistic_gradient(y, tx, w)
+        w = w - gamma * grad
+    loss = compute_logistic_loss(y, tx, w)
+    return w, loss
 
 
 def reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma):
-    """Regularized logistic regression using gradient descent.
-
-    Penalty lambda_ * ||w||^2, so the gradient is the logistic gradient
-    plus 2 * lambda_ * w. Note the argument order: lambda_ before initial_w.
+    """Regularized logistic regression using gradient descent for binary labels in {0, 1}.
 
     Args:
-        y: numpy array of shape (N,) with values in {0, 1}.
-        tx: numpy array of shape (N, D).
-        lambda_: float, regularization strength.
-        initial_w: numpy array of shape (D,), initial weights.
-        max_iters: int, number of gradient steps.
-        gamma: float, step size.
+        y: shape=(N,) binary target vector in {0, 1}.
+        tx: shape=(N, D) design matrix.
+        lambda_: float, regularization parameter.
+        initial_w: shape=(D,) initial weight vector.
+        max_iters: int, number of gradient descent steps.
+        gamma: float, step size / learning rate.
 
     Returns:
-        w: numpy array of shape (D,), the last weights.
-        loss: numpy scalar, logistic loss at the last weights WITHOUT the
-            penalty term.
+        (w, loss): final weight vector w of shape (D,) and unpenalized negative log-likelihood loss.
     """
-    raise NotImplementedError("Pending: reg_logistic_regression")
+    w = np.array(initial_w, dtype=np.float64, copy=True)
+    for _ in range(max_iters):
+        grad = compute_logistic_gradient(y, tx, w) + 2 * lambda_ * w
+        w = w - gamma * grad
+    loss = compute_logistic_loss(y, tx, w)
+    return w, loss
