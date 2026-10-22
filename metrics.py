@@ -1,7 +1,5 @@
 """Classification metrics. AIcrowd ranks by F1 score, so F1 is our main metric.
 
-STATUS: template.
-
 All functions take labels in {-1, 1}. Remember that always predicting -1
 gives ~91% accuracy but F1 = 0: never judge a model by accuracy alone.
 """
@@ -19,13 +17,14 @@ def accuracy(y_true, y_pred):
     Returns:
         float in [0, 1].
     """
-    raise NotImplementedError("Pending: accuracy")
+    return float(np.mean(y_true == y_pred))
 
 
 def precision_recall_f1(y_true, y_pred):
     """Precision, recall and F1 of the positive class (+1).
 
-    F1 = 2 * P * R / (P + R); return 0 when the denominator is 0.
+    F1 = 2 * P * R / (P + R) = 2 TP / (2 TP + FP + FN); 0 when there is no
+    true positive.
 
     Args:
         y_true: numpy array of shape (N,), values in {-1, 1}.
@@ -34,7 +33,15 @@ def precision_recall_f1(y_true, y_pred):
     Returns:
         precision, recall, f1 (floats).
     """
-    raise NotImplementedError("Pending: precision_recall_f1")
+    tp = np.sum((y_pred == 1) & (y_true == 1))
+    fp = np.sum((y_pred == 1) & (y_true == -1))
+    fn = np.sum((y_pred == -1) & (y_true == 1))
+    if tp == 0:
+        return 0.0, 0.0, 0.0
+    precision = tp / (tp + fp)
+    recall = tp / (tp + fn)
+    f1 = 2 * tp / (2 * tp + fp + fn)
+    return float(precision), float(recall), float(f1)
 
 
 def predict_labels(scores, threshold):
@@ -47,7 +54,7 @@ def predict_labels(scores, threshold):
     Returns:
         numpy array of shape (N,), values in {-1, 1}.
     """
-    raise NotImplementedError("Pending: predict_labels")
+    return np.where(scores >= threshold, 1, -1)
 
 
 def best_threshold(y_true, scores, candidates=None):
@@ -58,10 +65,17 @@ def best_threshold(y_true, scores, candidates=None):
     Args:
         y_true: numpy array of shape (N,), values in {-1, 1}.
         scores: numpy array of shape (N,).
-        candidates: numpy array of thresholds to try (default: a grid).
+        candidates: numpy array of thresholds to try (default: 101 quantiles
+            of the scores).
 
     Returns:
         threshold: float, the best threshold.
         f1: float, the F1 obtained with it.
     """
-    raise NotImplementedError("Pending: best_threshold")
+    if candidates is None:
+        candidates = np.unique(np.quantile(scores, np.linspace(0, 1, 101)))
+    f1s = [
+        precision_recall_f1(y_true, predict_labels(scores, t))[2] for t in candidates
+    ]
+    best = int(np.argmax(f1s))
+    return float(candidates[best]), float(f1s[best])

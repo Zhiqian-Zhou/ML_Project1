@@ -235,7 +235,7 @@
    9
   ],
   "zero_codes": [],
-  "notes": "time since cholesterol check"
+  "notes": "time since cholesterol check | NaN when BLOODCHO=2 (never checked) -> structural 5 (never)"
  },
  "TOLDHI2": {
   "nan_codes": [
@@ -2017,7 +2017,8 @@
    900
   ],
   "zero_codes": [],
-  "notes": "drink occasions/day (x100)"
+  "notes": "drink occasions/day (x100) | stored x100 in this file -> scale 0.01",
+  "scale": 0.01
  },
  "_RFBING5": {
   "nan_codes": [
@@ -2031,7 +2032,8 @@
    99900
   ],
   "zero_codes": [],
-  "notes": "drinks per week (x100)"
+  "notes": "drinks per week (x100) | stored x100 in this file -> scale 0.01",
+  "scale": 0.01
  },
  "_RFDRHV5": {
   "nan_codes": [
@@ -2210,11 +2212,9 @@
   "notes": "activity2 minutes/week"
  },
  "STRFREQ_": {
-  "nan_codes": [
-   99
-  ],
+  "nan_codes": [],
   "zero_codes": [],
-  "notes": "strength times/week"
+  "notes": "strength times/week | 88-99 are valid (rescaled times/week), clip instead"
  },
  "PAMISS1_": {
   "nan_codes": [
@@ -2375,6 +2375,7 @@
   "height3": "200-711 ft*12+in -> *2.54 cm; 9000-9998 -> v-9000 cm",
   "structural_zeros": "AVEDRNK2/DRNK3GE5/MAXDRNKS NaN & ALCDAY5==888 -> 0; POORHLTH NaN & PHYSHLTH==MENTHLTH==88 -> 0; BPMEDS NaN & BPHIGH4 in {2,3,4} -> 'no'; SMOKDAY2 NaN & SMOKE100==2 -> 3; PA1MIN_/PA1VIGM_ NaN & EXERANY2==2 -> 0; JOINPAIN NaN & HAVARTH3==2 -> 0; CHOLCHK NaN & BLOODCHO==2 -> 5; DIABAGE2 NaN & DIABETE3!=1 -> diabetes_years 0",
   "binary_yn": "1->1, 2->0, 7/9->NaN",
-  "calc_9": "calculated vars: 9 (or 14 for _AGEG5YR, 3 for _AGE65YR, 900/99900/999/99 scaled) = DK/refused -> NaN"
+  "calc_9": "calculated vars: 9 (or 14 for _AGEG5YR, 3 for _AGE65YR, 900/99900/999/99 scaled) = DK/refused -> NaN",
+  "scale": "multiply the cleaned value by 'scale' (default 1)"
  }
 }
