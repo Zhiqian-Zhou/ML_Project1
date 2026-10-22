@@ -21,13 +21,13 @@ SEED = 42
 # Final hyperparameters, chosen by cross-validation (see notebooks/ and the
 # report). Update them together with the report when they change.
 CONFIG = {
-    "max_nan_ratio": 0.8,
+    "max_nan_ratio": 0.85,
     "add_nan_indicators": True,
     "poly_degree": 1,
     "lambda_": 1e-4,
-    "gamma": 0.5,
-    "max_iters": 1000,
-    "threshold": 0.2,
+    "gamma": 0.1,
+    "max_iters": 500,
+    "threshold": 0.218,
 }
 
 
@@ -69,7 +69,8 @@ def main():
     print(f"Final training loss: {loss:.5f}")
 
     # 4. Predict with the tuned threshold and go back to labels in {-1, 1}.
-    probabilities = 1 / (1 + np.exp(-(tx_test @ w)))
+    logits = np.clip(tx_test @ w, -250, 250)
+    probabilities = 1 / (1 + np.exp(-logits))
     y_pred = predict_labels(probabilities, CONFIG["threshold"])
 
     # 5. Write the submission csv (Id, Prediction).

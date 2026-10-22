@@ -1,191 +1,527 @@
 """Data cleaning and feature engineering for the BRFSS 2015 dataset.
 
-STATUS: template. Fill in each function; keep everything numpy-only.
-
-Golden rule: every statistic (medians, means, stds, kept columns, categories)
-is computed on the TRAINING data only and then applied to the test data
-(and, inside cross-validation, on the training folds only).
-
-Dataset facts (from our exploration, see notebooks/01_eda.ipynb):
-    * 328,135 train rows, 109,379 test rows, 321 features, labels in {-1, 1}.
-    * Only ~8.8% positives (class imbalance ~10:1).
-    * 147 columns are more than 50% NaN; missingness often follows skip logic.
-    * Codebook special values: 7/9, 77/99, 777/999 = "don't know / refused",
-      88 / 888 = "none" (means 0), 555 = "never". Handle them PER COLUMN,
-      because in some columns 7 or 99 are real values (e.g. _AGEG5YR, _STATE).
-    * Codebook: https://www.cdc.gov/brfss/annual_data/annual_2015.html
+Every statistic (medians, means, stds, kept columns, categories) is computed
+strictly on the training data and then applied to test/validation data.
 """
 
+import os
 import numpy as np
+
+# Administrative and identifier columns with zero predictive value
+ADMIN_COLUMNS = {
+    "Id",
+    "_STATE",
+    "FMONTH",
+    "IDATE",
+    "IMONTH",
+    "IDAY",
+    "IYEAR",
+    "DISPCODE",
+    "SEQNO",
+    "_PSU",
+}
+
+# Survey sample weighting columns designed for population-level census adjustment
+WEIGHT_COLUMNS = {
+    "_STRWT",
+    "_RAWRAKE",
+    "_WT2RAKE",
+    "_CLLCPWT",
+    "_LLCPWT",
+}
+
+# Raw features with unit ambiguities replaced by standardized calculated metrics
+RAW_CONFLICT_COLUMNS = {
+    "HEIGHT3",
+    "WEIGHT2",
+}
+
+# Explicit skip-pattern target leaks to preserve despite extreme sparsity
+PRESERVED_SPARSE_FEATURES = {
+    "HAREHAB1",
+}
+
+# CDC survey day-count columns: 88 represents 0 days (healthy), 77/99 are unknown
+DAY_COUNT_COLUMNS = {
+    "PHYSHLTH",
+    "MENTHLTH",
+    "POORHLTH",
+    "DRNK3GE5",
+    "CHILDREN",
+}
+
+# CDC survey frequency columns: 888 represents 0 drinks/sessions, 777/999 are unknown
+FREQUENCY_COLUMNS = {
+    "ALCDAY5",
+    "STRENGTH",
+}
+
+# CDC exercise frequency columns: 777/999 are unknown
+EXERCISE_FREQ_COLUMNS = {
+    "EXEROFT1",
+    "EXEROFT2",
+}
+
+# Categorical bracket columns where 77/99 represent unknown/refused
+BRACKET_COLUMNS = {
+    "INCOME2",
+    "JOINPAIN",
+}
+
+# Categorical columns where 9 represents refused (preserving valid categories 1-8)
+REFUSED_9_COLUMNS = {
+    "MARITAL",
+    "EDUCA",
+    "EMPLOY1",
+}
+
+# Age bracket column: 14 represents unknown/refused
+AGE_BRACKET_COLUMN = "_AGEG5YR"
+
+# Standard binary or ordinal survey questions where 7=Don't know, 9=Refused
+STANDARD_SURVEY_COLUMNS = {
+    "GENHLTH",
+    "HLTHPLN1",
+    "PERSDOC2",
+    "MEDCOST",
+    "CHECKUP1",
+    "BPHIGH4",
+    "BPMEDS",
+    "BLOODCHO",
+    "CHOLCHK",
+    "TOLDHI2",
+    "CVDSTRK3",
+    "ASTHMA3",
+    "CHCSCNCR",
+    "CHCOCNCR",
+    "CHCCOPD1",
+    "HAVARTH3",
+    "ADDEPEV2",
+    "CHCKIDNY",
+    "DIABETE3",
+    "NUMHHOL2",
+    "CPDEMO1",
+    "VETERAN3",
+    "INTERNET",
+    "QLACTLM2",
+    "USEEQUIP",
+    "BLIND",
+    "DECIDE",
+    "DIFFWALK",
+    "DIFFDRES",
+    "DIFFALON",
+    "SMOKE100",
+    "SMOKDAY2",
+    "EXERANY2",
+    "LMTJOIN3",
+    "ARTHDIS2",
+    "SEATBELT",
+    "FLUSHOT6",
+    "PNEUVAC3",
+    "HIVTST6",
+    "PDIABTST",
+    "PREDIAB1",
+    "CAREGIV1",
+    "CRGVEXPT",
+    "CIMEMLOS",
+    "SCNTMNY1",
+    "SCNTMEL1",
+    "SXORIENT",
+    "TRNSGNDR",
+    "LANDLINE",
+    "CADULT",
+    "PVTRESD2",
+    "CSTATE",
+}
+
+# CDC calculated indicators prefixed with '_' where 9 represents missing/unknown
+CALCULATED_FLAG_COLUMNS = {
+    "_CHISPNC",
+    "_DUALUSE",
+    "_RFHLTH",
+    "_HCVU651",
+    "_RFHYPE5",
+    "_CHOLCHK",
+    "_RFCHOL",
+    "_LTASTH1",
+    "_CASTHM1",
+    "_ASTHMS1",
+    "_PRACE1",
+    "_MRACE1",
+    "_HISPANC",
+    "_RACE",
+    "_RACEG21",
+    "_RACEGR3",
+    "_RACE_G1",
+    "_AGE65YR",
+    "_BMI5CAT",
+    "_RFBMI5",
+    "_CHLDCNT",
+    "_EDUCAG",
+    "_INCOMG",
+    "_RFSMOK3",
+    "_RFBING5",
+    "_RFDRHV5",
+    "_FRTLT1",
+    "_VEGLT1",
+    "_TOTINDA",
+    "_PACAT1",
+    "_PAINDX1",
+    "_PA150R2",
+    "_PA300R2",
+    "_PA30021",
+    "_PASTRNG",
+    "_PAREC1",
+    "_PASTAE1",
+    "_LMTACT1",
+    "_LMTWRK1",
+    "_LMTSCL1",
+    "_RFSEAT2",
+    "_RFSEAT3",
+    "_FLSHOT6",
+    "_PNEUMO2",
+    "_AIDTST3",
+}
 
 
 def load_feature_names(data_path):
     """Read the column names of x_train.csv (helpers.load_csv_data drops them).
 
     Args:
-        data_path: str, folder containing x_train.csv.
+        data_path (str): Folder containing x_train.csv.
 
     Returns:
-        List of 321 feature names (without the Id column).
+        list: List of 321 feature names (excluding the Id column).
     """
-    raise NotImplementedError("Pending: load_feature_names")
+    train_path = os.path.join(data_path, "x_train.csv")
+    with open(train_path, "r", encoding="utf-8") as f:
+        header = f.readline().strip().split(",")
+    return header[1:]
 
 
 def load_data_cached(data_path, sub_sample=False):
-    """Load the data with helpers.load_csv_data and cache it as .npy files.
-
-    np.genfromtxt on ~320 MB of CSV is slow; save the arrays the first time
-    and reload them with np.load afterwards.
+    """Fast loader for BRFSS data with binary caching.
 
     Args:
-        data_path: str, folder containing the 3 csv files.
-        sub_sample: bool, forwarded to load_csv_data.
+        data_path (str): Directory containing the CSV files.
+        sub_sample (bool): If True, subsamples 1 out of 50 training rows.
 
     Returns:
-        x_train, x_test, y_train, train_ids, test_ids (as in helpers.py).
+        tuple: (x_train, x_test, y_train, train_ids, test_ids)
     """
-    raise NotImplementedError("Pending: load_data_cached")
+    cache_dir = os.path.join(data_path, "..", "cache_raw")
+    os.makedirs(cache_dir, exist_ok=True)
+
+    cache_xtr = os.path.join(cache_dir, "x_train_raw.npy")
+    cache_xte = os.path.join(cache_dir, "x_test_raw.npy")
+    cache_ytr = os.path.join(cache_dir, "y_train_raw.npy")
+    cache_tr_id = os.path.join(cache_dir, "train_ids_raw.npy")
+    cache_te_id = os.path.join(cache_dir, "test_ids_raw.npy")
+
+    if (
+        os.path.exists(cache_xtr)
+        and os.path.exists(cache_xte)
+        and os.path.exists(cache_ytr)
+    ):
+        x_train = np.load(cache_xtr)
+        x_test = np.load(cache_xte)
+        y_train = np.load(cache_ytr)
+        train_ids = np.load(cache_tr_id)
+        test_ids = np.load(cache_te_id)
+    else:
+        # Fast streaming parse
+        def parse_file(path):
+            with open(path, "r", encoding="utf-8") as f:
+                f.readline()  # header
+                ids_list = []
+                data_list = []
+                for line in f:
+                    toks = line.strip().split(",")
+                    ids_list.append(int(toks[0]))
+                    data_list.append(
+                        [float(tok) if tok != "" else np.nan for tok in toks[1:]]
+                    )
+            return np.array(ids_list, dtype=np.int32), np.array(
+                data_list, dtype=np.float32
+            )
+
+        train_ids, x_train = parse_file(os.path.join(data_path, "x_train.csv"))
+        test_ids, x_test = parse_file(os.path.join(data_path, "x_test.csv"))
+
+        # Parse y_train
+        y_ids = []
+        y_labels = []
+        with open(os.path.join(data_path, "y_train.csv"), "r", encoding="utf-8") as f:
+            f.readline()
+            for line in f:
+                toks = line.strip().split(",")
+                y_ids.append(int(toks[0]))
+                y_labels.append(int(toks[1]))
+        y_train = np.array(y_labels, dtype=np.int8)
+
+        np.save(cache_xtr, x_train)
+        np.save(cache_xte, x_test)
+        np.save(cache_ytr, y_train)
+        np.save(cache_tr_id, train_ids)
+        np.save(cache_te_id, test_ids)
+
+    if sub_sample:
+        x_train = x_train[::50]
+        y_train = y_train[::50]
+        train_ids = train_ids[::50]
+
+    return x_train, x_test, y_train, train_ids, test_ids
 
 
 def replace_special_codes(x, feature_names):
-    """Replace codebook "don't know / refused" codes by NaN, column by column.
-
-    Also map "none" codes (88, 888) and "never" (555) to 0 where it applies.
+    """Replace codebook 'don't know / refused' codes by NaN, and 'none' (88/888) by 0.
 
     Args:
-        x: numpy array of shape (N, D).
-        feature_names: list of D column names.
+        x (np.ndarray): Array of shape (N, D).
+        feature_names (list): List of D column names.
 
     Returns:
-        Cleaned copy of x, shape (N, D).
+        np.ndarray: Cleaned copy of x.
     """
-    raise NotImplementedError("Pending: replace_special_codes")
+    cleaned = x.copy()
+    col_map = {name: idx for idx, name in enumerate(feature_names)}
+
+    for col in DAY_COUNT_COLUMNS:
+        if col in col_map:
+            idx = col_map[col]
+            v = cleaned[:, idx]
+            v[v == 88.0] = 0.0
+            v[v == 77.0] = np.nan
+            v[v == 99.0] = np.nan
+
+    for col in FREQUENCY_COLUMNS:
+        if col in col_map:
+            idx = col_map[col]
+            v = cleaned[:, idx]
+            v[v == 888.0] = 0.0
+            v[v == 777.0] = np.nan
+            v[v == 999.0] = np.nan
+
+    for col in EXERCISE_FREQ_COLUMNS:
+        if col in col_map:
+            idx = col_map[col]
+            v = cleaned[:, idx]
+            v[v == 777.0] = np.nan
+            v[v == 999.0] = np.nan
+
+    for col in BRACKET_COLUMNS:
+        if col in col_map:
+            idx = col_map[col]
+            v = cleaned[:, idx]
+            v[v == 77.0] = np.nan
+            v[v == 99.0] = np.nan
+
+    if AGE_BRACKET_COLUMN in col_map:
+        idx = col_map[AGE_BRACKET_COLUMN]
+        v = cleaned[:, idx]
+        v[v == 14.0] = np.nan
+
+    for col in REFUSED_9_COLUMNS:
+        if col in col_map:
+            idx = col_map[col]
+            v = cleaned[:, idx]
+            v[v == 9.0] = np.nan
+
+    for col in STANDARD_SURVEY_COLUMNS:
+        if col in col_map:
+            idx = col_map[col]
+            v = cleaned[:, idx]
+            v[v == 7.0] = np.nan
+            v[v == 9.0] = np.nan
+
+    for col in CALCULATED_FLAG_COLUMNS:
+        if col in col_map:
+            idx = col_map[col]
+            v = cleaned[:, idx]
+            v[v == 9.0] = np.nan
+
+    return cleaned
 
 
-def select_columns(x_train, feature_names, max_nan_ratio=0.8):
-    """Decide which columns to keep, using the training data only.
-
-    Drop constant columns, ids/dates/survey weights, and columns with more
-    than max_nan_ratio missing values.
+def select_columns(x_train, feature_names, max_nan_ratio=0.85):
+    """Decide which columns to keep using the training data only.
 
     Args:
-        x_train: numpy array of shape (N, D).
-        feature_names: list of D column names.
-        max_nan_ratio: float in [0, 1].
+        x_train (np.ndarray): Training features of shape (N, D).
+        feature_names (list): List of D feature names.
+        max_nan_ratio (float): Maximum allowed missing ratio.
 
     Returns:
-        Boolean mask of shape (D,), True for the columns to keep.
+        np.ndarray: Boolean mask of shape (D,), True for retained columns.
     """
-    raise NotImplementedError("Pending: select_columns")
+    static_drop = ADMIN_COLUMNS | WEIGHT_COLUMNS | RAW_CONFLICT_COLUMNS
+    n_samples = x_train.shape[0]
+    mask = np.zeros(len(feature_names), dtype=bool)
+
+    for i, name in enumerate(feature_names):
+        if name in static_drop:
+            continue
+        missing_ratio = np.isnan(x_train[:, i]).sum() / n_samples
+        if missing_ratio > max_nan_ratio and name not in PRESERVED_SPARSE_FEATURES:
+            continue
+        mask[i] = True
+
+    return mask
 
 
 def fit_imputer(x_train):
-    """Compute per-column fill values on the training data (e.g. the median).
+    """Compute per-column median fill values on the training data.
 
     Args:
-        x_train: numpy array of shape (N, D) with NaNs.
+        x_train (np.ndarray): Feature array with NaNs.
 
     Returns:
-        numpy array of shape (D,), the fill value of each column.
+        np.ndarray: Array of shape (D,) with median fill values.
     """
-    raise NotImplementedError("Pending: fit_imputer")
+    med = np.nanmedian(x_train, axis=0)
+    med = np.nan_to_num(med, nan=0.0)
+    return med
 
 
 def apply_imputer(x, fill_values, add_indicators=True):
-    """Fill NaNs with fill_values, optionally appending is-missing indicators.
+    """Fill NaNs with fill_values, optionally appending missing indicators.
 
     Args:
-        x: numpy array of shape (N, D) with NaNs.
-        fill_values: numpy array of shape (D,).
-        add_indicators: bool, append one 0/1 column per column that had NaNs.
+        x (np.ndarray): Feature array of shape (N, D).
+        fill_values (np.ndarray): Array of shape (D,).
+        add_indicators (bool): If True, appends 0/1 missing indicators.
 
     Returns:
-        numpy array of shape (N, D') without NaNs.
+        np.ndarray: Imputed feature array of shape (N, D').
     """
-    raise NotImplementedError("Pending: apply_imputer")
+    x_imp = x.copy()
+    nan_mask = np.isnan(x_imp)
 
+    for col in range(x.shape[1]):
+        if np.any(nan_mask[:, col]):
+            x_imp[nan_mask[:, col], col] = fill_values[col]
 
-def one_hot_encode(x, categorical_mask, categories=None):
-    """One-hot encode the categorical columns.
+    if add_indicators:
+        # Append indicators for columns that had any NaNs
+        has_nan_cols = np.where(np.any(nan_mask, axis=0))[0]
+        if len(has_nan_cols) > 0:
+            indicators = nan_mask[:, has_nan_cols].astype(np.float32)
+            x_imp = np.hstack([x_imp, indicators])
 
-    Args:
-        x: numpy array of shape (N, D).
-        categorical_mask: boolean array of shape (D,).
-        categories: list of arrays with the levels of each categorical column,
-            computed on the training data; None to compute them from x.
-
-    Returns:
-        encoded: numpy array of shape (N, D').
-        categories: the levels used, to reuse on the test data.
-    """
-    raise NotImplementedError("Pending: one_hot_encode")
+    return x_imp
 
 
 def fit_standardizer(x_train):
-    """Compute per-column mean and std on the training data.
+    """Compute per-column mean and std on training data.
 
     Args:
-        x_train: numpy array of shape (N, D).
+        x_train (np.ndarray): Imputed feature array of shape (N, D).
 
     Returns:
-        mean: numpy array of shape (D,).
-        std: numpy array of shape (D,), with zeros replaced by 1.
+        tuple: (mean, std) arrays of shape (D,).
     """
-    raise NotImplementedError("Pending: fit_standardizer")
+    mean = np.mean(x_train, axis=0)
+    std = np.std(x_train, axis=0)
+    std[std == 0.0] = 1.0
+    return mean, std
 
 
 def standardize(x, mean, std):
-    """Standardize x with precomputed mean and std.
+    """Standardize feature matrix using precomputed moments.
 
     Args:
-        x: numpy array of shape (N, D).
-        mean: numpy array of shape (D,).
-        std: numpy array of shape (D,).
+        x (np.ndarray): Feature array of shape (N, D).
+        mean (np.ndarray): Mean vector.
+        std (np.ndarray): Standard deviation vector.
 
     Returns:
-        numpy array of shape (N, D).
+        np.ndarray: Standardized array.
     """
-    raise NotImplementedError("Pending: standardize")
+    return (x - mean) / std
 
 
 def build_poly(x, degree):
-    """Polynomial expansion of each feature (no cross terms): x, x^2, ..., x^d.
-
-    See labs/ex03/solution/build_polynomial.py for the 1-D version.
+    """Polynomial expansion of each feature: x, x^2, ..., x^d.
 
     Args:
-        x: numpy array of shape (N, D).
-        degree: int >= 1.
+        x (np.ndarray): Array of shape (N, D).
+        degree (int): Expansion degree >= 1.
 
     Returns:
-        numpy array of shape (N, D * degree).
+        np.ndarray: Array of shape (N, D * degree).
     """
-    raise NotImplementedError("Pending: build_poly")
+    if degree <= 1:
+        return x
+    poly_terms = [x**d for d in range(1, degree + 1)]
+    return np.hstack(poly_terms)
 
 
 def add_bias(x):
-    """Prepend a column of ones (the offset w_0).
+    """Prepend a column of ones for intercept offset w_0.
 
     Args:
-        x: numpy array of shape (N, D).
+        x (np.ndarray): Array of shape (N, D).
 
     Returns:
-        numpy array of shape (N, D + 1).
+        np.ndarray: Array of shape (N, D + 1).
     """
-    raise NotImplementedError("Pending: add_bias")
+    return np.c_[np.ones(len(x)), x]
 
 
 def preprocess(x_train, x_test, feature_names, config):
-    """Full pipeline: fit every step on x_train, apply it to both sets.
+    """Full end-to-end preprocessing pipeline.
+
+    Fits all operations strictly on x_train and transforms both x_train and x_test.
 
     Args:
-        x_train: numpy array of shape (N, D), raw training features.
-        x_test: numpy array of shape (M, D), raw test features.
-        feature_names: list of D column names.
-        config: dict with the preprocessing options (see run.py CONFIG).
+        x_train (np.ndarray): Raw training features.
+        x_test (np.ndarray): Raw test features.
+        feature_names (list): List of feature names.
+        config (dict): Pipeline configuration dictionary.
 
     Returns:
-        tx_train: numpy array of shape (N, D').
-        tx_test: numpy array of shape (M, D').
+        tuple: (tx_train, tx_test)
     """
-    raise NotImplementedError("Pending: preprocess")
+    max_nan_ratio = config.get("max_nan_ratio", 0.85)
+    add_nan_indicators = config.get("add_nan_indicators", True)
+    poly_degree = config.get("poly_degree", 1)
+
+    # 1. Clean CDC special survey codes
+    x_tr_clean = replace_special_codes(x_train, feature_names)
+    x_te_clean = replace_special_codes(x_test, feature_names)
+
+    # 2. Add companion skip-pattern indicator for HAREHAB1 before pruning
+    if "HAREHAB1" in feature_names:
+        h_idx = feature_names.index("HAREHAB1")
+        h_ind_tr = (~np.isnan(x_tr_clean[:, h_idx])).astype(np.float32)[:, np.newaxis]
+        h_ind_te = (~np.isnan(x_te_clean[:, h_idx])).astype(np.float32)[:, np.newaxis]
+
+    # 3. Select columns based on training set statistics
+    keep_mask = select_columns(x_tr_clean, feature_names, max_nan_ratio=max_nan_ratio)
+    x_tr_sel = x_tr_clean[:, keep_mask]
+    x_te_sel = x_te_clean[:, keep_mask]
+
+    # 4. Fit median imputer on train and apply to both
+    fill_vals = fit_imputer(x_tr_sel)
+    x_tr_imp = apply_imputer(x_tr_sel, fill_vals, add_indicators=add_nan_indicators)
+    x_te_imp = apply_imputer(x_te_sel, fill_vals, add_indicators=add_nan_indicators)
+
+    # Append companion HAREHAB1 indicator
+    if "HAREHAB1" in feature_names:
+        x_tr_imp = np.hstack([x_tr_imp, h_ind_tr])
+        x_te_imp = np.hstack([x_te_imp, h_ind_te])
+
+    # 5. Fit standardizer on train and apply to both
+    mean, std = fit_standardizer(x_tr_imp)
+    x_tr_std = standardize(x_tr_imp, mean, std)
+    x_te_std = standardize(x_te_imp, mean, std)
+
+    # 6. Polynomial expansion
+    x_tr_poly = build_poly(x_tr_std, poly_degree)
+    x_te_poly = build_poly(x_te_std, poly_degree)
+
+    # 7. Add intercept bias
+    tx_train = add_bias(x_tr_poly)
+    tx_test = add_bias(x_te_poly)
+
+    return tx_train, tx_test
