@@ -16,9 +16,9 @@
 | **M2** | Data Hygiene & Cache | `[x]` | `preprocess.py` & `.npy` cache | Cleaned 88/888 codes, pruned 125 features, 349.2x I/O speedup |
 | **M3** | Pure-NumPy CV Harness | `[x]` | `cross_validation.py` & `metrics.py` | Stratified 5-Fold, F1=0.4277 (Logistic), F1=0.4231 (Ridge) |
 | **M4** | Feature Engineering | `[x]` | `feature_engineering.py` | MNAR masks, nominal one-hot, 5 clinical interactions (F1=0.4311) |
-| **M5** | Model Tuning & Selection | `[x]` | `ablation_study.py` | Dynamic threshold calibration (tau*=0.210-0.224), grid search |
-| **M6** | Reproducible Submission | `[x]` | `run.py` & `README.md` | `submission_feature_engineered.csv` (109,380 rows verified) |
-| **M7** | 2-Page Scientific Report | `[ ]` | LaTeX PDF (`IEEEtran`) | Include baseline comparison table & ablation study |
+| **M5** | Bold Hypotheses & Ensembles | `[x]` | `benchmark_hypotheses.py` | 4 hypotheses evaluated: WoE, Rank Blend, 2-Layer MLP, Multi-morbidity |
+| **M6** | SOTA Submission Generation | `[x]` | `run.py` & `submissions/` | `submission_sota.csv` (109,380 rows verified, peak CV F1=0.4320) |
+| **M7** | 2-Page Scientific Report | `[ ]` | LaTeX PDF (`IEEEtran`) | Include baseline comparison table, ablation study & negative results |
 
 ---
 
@@ -40,3 +40,7 @@
 | M4-Step4-Tuned | 2026-10-22 | Step 3 + Tuned Hyperparameters (lambda=1e-4, gamma=0.15) | 0.8769 | 0.4311 +/- 0.0018 | 0.7195 | Sub-02 |
 | M4-Streamlined-Ridge | 2026-10-22 | Cost-Sensitive Ridge (w_pos=3.0, 205 dims: 197 base + 5 cross + 2 quad) | 0.8756 | 0.4309 +/- 0.0032 | 0.7211 | 7.5s (Sub-02b) |
 | M4-Streamlined-Log | 2026-10-22 | Regularized Logistic on Streamlined 205-dim space | 0.8741 | 0.4307 +/- 0.0028 | 0.7229 | 52.5s |
+| M5-Hypothesis-A | 2026-10-23 | Empirical Bayesian Log-Odds (WoE) + Weighted Ridge (209 dims) | 0.8756 | 0.4315 +/- 0.0032 | 0.7216 | Validated (9.7s) |
+| M5-Hypothesis-B | 2026-10-23 | Multi-Model Heterogeneous Rank Blend + WoE (0.45 Ridge + 0.35 Log + 0.20 Bag) | 0.8749 | **0.4320 +/- 0.0033** | 0.7230 | **Sub-03 (SOTA)** |
+| M5-Hypothesis-C | 2026-10-23 | Pure-NumPy 2-Layer Neural Network (D=205 -> H=64 ReLU -> 1 Sigmoid) | 0.8778 | 0.4272 +/- 0.0020 | 0.7145 | Train F1=0.4644 (Overfitting) |
+| M5-Hypothesis-D | 2026-10-23 | Clinical Multi-morbidity Stacking Score (0-7 index + Ridge) | 0.8757 | 0.4312 +/- 0.0032 | 0.7213 | Competitive (8.1s) |
