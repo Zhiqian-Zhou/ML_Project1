@@ -203,7 +203,10 @@
    9
   ],
   "zero_codes": [],
-  "notes": "time since checkup 1..4, 8=never (recode 8->5) | recode 8 (never) -> 5"
+  "notes": "time since checkup 1..4, 8=never -> recoded to 5 (after 4 = \"5+ years\")",
+  "recode": {
+   "8": 5
+  }
  },
  "BPHIGH4": {
   "nan_codes": [
@@ -892,7 +895,10 @@
    9
   ],
   "zero_codes": [],
-  "notes": "diabetes module: eye exam (8 never) | recode 8 (never) -> 5"
+  "notes": "diabetes module: eye exam 1..4, 8=never -> recoded to 5",
+  "recode": {
+   "8": 5
+  }
  },
  "DIABEYE": {
   "nan_codes": [
@@ -1946,11 +1952,9 @@
   "notes": "height m (= HTIN4)"
  },
  "WTKG3": {
-  "nan_codes": [
-   99999
-  ],
+  "nan_codes": [],
   "zero_codes": [],
-  "notes": "weight kg"
+  "notes": "weight kg (already scaled; 99999 code does not occur after scaling)"
  },
  "_BMI5": {
   "nan_codes": [],
@@ -2188,18 +2192,14 @@
   "notes": "activity2 minutes"
  },
  "PAFREQ1_": {
-  "nan_codes": [
-   99
-  ],
+  "nan_codes": [],
   "zero_codes": [],
-  "notes": "activity1 times/week (= EXEROFT1)"
+  "notes": "activity1 times/week (= EXEROFT1) | 99 is a real value (EXEROFT=199), clip instead"
  },
  "PAFREQ2_": {
-  "nan_codes": [
-   99
-  ],
+  "nan_codes": [],
   "zero_codes": [],
-  "notes": "activity2 times/week"
+  "notes": "activity2 times/week | 99 is a real value (EXEROFT=199), clip instead"
  },
  "_MINAC11": {
   "nan_codes": [],
@@ -2373,9 +2373,10 @@
   "hhmm": "minutes = (v//100)*60 + v%100",
   "weight2": "50-999 lbs*0.4536 -> kg; 9000-9998 -> v-9000 kg",
   "height3": "200-711 ft*12+in -> *2.54 cm; 9000-9998 -> v-9000 cm",
-  "structural_zeros": "AVEDRNK2/DRNK3GE5/MAXDRNKS NaN & ALCDAY5==888 -> 0; POORHLTH NaN & PHYSHLTH==MENTHLTH==88 -> 0; BPMEDS NaN & BPHIGH4 in {2,3,4} -> 'no'; SMOKDAY2 NaN & SMOKE100==2 -> 3; PA1MIN_/PA1VIGM_ NaN & EXERANY2==2 -> 0; JOINPAIN NaN & HAVARTH3==2 -> 0; CHOLCHK NaN & BLOODCHO==2 -> 5; DIABAGE2 NaN & DIABETE3!=1 -> diabetes_years 0",
+  "structural_zeros": "AVEDRNK2/DRNK3GE5/MAXDRNKS NaN & ALCDAY5==888 -> 0; POORHLTH NaN & PHYSHLTH==MENTHLTH==88 -> 0; BPMEDS NaN & BPHIGH4 in {2,3,4} -> 'no'; SMOKDAY2 NaN & SMOKE100==2 -> 3; PA1MIN_/PA1VIGM_ NaN & EXERANY2==2 -> 0; JOINPAIN NaN & HAVARTH3==2 -> 0; CHOLCHK NaN & BLOODCHO==2 -> 5; DIABAGE2 NaN & DIABETE3!=1 -> diabetes_years 0; INSULIN NaN & DIABETE3 in {2,3,4} -> 2 (no insulin)",
   "binary_yn": "1->1, 2->0, 7/9->NaN",
   "calc_9": "calculated vars: 9 (or 14 for _AGEG5YR, 3 for _AGE65YR, 900/99900/999/99 scaled) = DK/refused -> NaN",
-  "scale": "multiply the cleaned value by 'scale' (default 1)"
+  "scale": "multiply the cleaned value by 'scale' (default 1)",
+  "recode": "map listed raw values to new values before scaling, e.g. CHECKUP1/EYEEXAM 8 (never) -> 5"
  }
 }
