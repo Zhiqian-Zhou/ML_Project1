@@ -1,0 +1,131 @@
+% CS-433 Project 1 report -- IEEE conference template from the course.
+% STRICT LIMIT: 2 pages (references may go on a 3rd page). No appendix.
+% Audience: ML beginners. Everything needed to reproduce the results must be here.
+% Compile: pdflatex report && bibtex report && pdflatex report && pdflatex report
+
+\documentclass[10pt,conference,compsocconf]{IEEEtran}
+
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+
+\begin{document}
+\title{Predicting Coronary Heart Disease from Lifestyle Survey Data\\
+  with Regularized Linear Models}
+
+\author{
+  \textit{(Name 1), (Name 2), (Name 3)}\\
+  \textit{School of Computer and Communication Sciences, EPFL, Switzerland}
+}
+
+\maketitle
+
+\begin{abstract}
+  % Write it LAST. 4 sentences: (1) the problem, (2) why it is
+  % interesting/hard, (3) what we did and what we achieved (numbers!),
+  % (4) what follows from it.
+  [Abstract placeholder.]
+\end{abstract}
+
+\section{Introduction}
+% - Task: predict MICHD (coronary heart disease / heart attack) from the
+%   BRFSS 2015 survey \cite{brfss2015}: 328k train / 109k test, 321 features.
+% - Challenges: class imbalance (8.8\% positives), heavy and structured
+%   missingness, codebook special values, mostly categorical features.
+% - Contributions: short list of what we did and our final F1.
+[Introduction placeholder.]
+
+\section{Models and Methods}
+\label{sec:methods}
+
+\subsection{Data preprocessing}
+% Exact and reproducible: which columns were dropped (and why), how
+% special codes (7/9, 77/99, ...) were handled, imputation strategy,
+% missing indicators, one-hot encoding, standardization, feature
+% expansion. Statistics computed on training folds only.
+[Preprocessing placeholder.]
+
+\subsection{Models}
+% The 6 methods of implementations.py (GD/SGD on MSE, least squares,
+% ridge, logistic, regularized logistic). Write the losses with the
+% conventions used, e.g.
+% \begin{equation}
+%   \mathcal{L}(w) = \frac{1}{N}\sum_{n=1}^{N}
+%   \left[\log(1+e^{x_n^\top w}) - y_n x_n^\top w\right] + \lambda\|w\|^2
+% \end{equation}
+% Imbalance handling (threshold tuning, class weights, ...).
+[Models placeholder.]
+
+\subsection{Validation protocol}
+% K-fold stratified CV (K=?, seed=?), hyperparameter grids
+% ($\lambda$, $\gamma$, iterations, degree, threshold), metric (F1,
+% accuracy), how the final model was trained.
+[Validation placeholder.]
+
+\section{Results}
+% Organize around figures and tables, 1-2 key messages each.
+% Always mean $\pm$ std over folds.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Cross-validated performance of baselines and our model
+    (mean $\pm$ std over $K$ folds).}
+  \label{tab:results}
+  \begin{tabular}{lcc}
+    \toprule
+    Model                         & F1              & Accuracy        \\
+    \midrule
+    Always $-1$                   & 0.000           & 0.912           \\
+    Least squares                 & --              & --              \\
+    Ridge regression              & --              & --              \\
+    Logistic regression           & --              & --              \\
+    Reg.\ logistic regression     & --              & --              \\
+    \midrule
+    \textbf{Ours (final)}         & --              & --              \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% Ablation study: start from the final model and remove one component at
+% a time (or add them one by one) and report the F1 change.
+\begin{table}[htbp]
+  \centering
+  \caption{Ablation study: effect of each component on CV F1.}
+  \label{tab:ablation}
+  \begin{tabular}{lc}
+    \toprule
+    Configuration                         & F1 \\
+    \midrule
+    Final model                           & -- \\
+    \quad -- threshold tuning (use 0.5)   & -- \\
+    \quad -- missing indicators           & -- \\
+    \quad -- special-code cleaning        & -- \\
+    \quad -- one-hot encoding             & -- \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% Example figure (validation curve F1 vs lambda, or F1 vs threshold):
+% \begin{figure}[htbp]
+%   \centering
+%   \includegraphics[width=\columnwidth]{figures/validation_curve.pdf}
+%   \caption{Validation F1 as a function of $\lambda$.}
+%   \label{fig:valcurve}
+% \end{figure}
+
+% AIcrowd: report the test F1/accuracy of the submission produced by run.py.
+[Results placeholder. AIcrowd test F1: --, accuracy: --.]
+
+\section{Discussion}
+% Strengths, weaknesses, what did not work, possible improvements,
+% any concern (e.g. features that may leak the label).
+[Discussion placeholder.]
+
+\section{Summary}
+[Summary placeholder.]
+
+\bibliographystyle{IEEEtran}
+\bibliography{literature}
+
+\end{document}
