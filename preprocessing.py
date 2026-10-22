@@ -474,54 +474,79 @@ def preprocess(x_train, x_test, feature_names, config):
     Fits all operations strictly on x_train and transforms both x_train and x_test.
 
     Args:
-        x_train (np.ndarray): Raw training features.
-        x_test (np.ndarray): Raw test features.
+        x_train (np.ndarray): Raw or selected training features.
+        x_test (np.ndarray): Raw or selected test features.
         feature_names (list): List of feature names.
         config (dict): Pipeline configuration dictionary.
 
     Returns:
         tuple: (tx_train, tx_test)
     """
+    from feature_engineering import engineer_features_fold
+
     max_nan_ratio = config.get("max_nan_ratio", 0.85)
     add_nan_indicators = config.get("add_nan_indicators", True)
+    one_hot_nominal = config.get("one_hot_nominal", True)
+    clinical_interactions = config.get("clinical_interactions", True)
+    drop_first_nominal = config.get("drop_first_nominal", True)
     poly_degree = config.get("poly_degree", 1)
 
-    # 1. Clean CDC special survey codes
-    x_tr_clean = replace_special_codes(x_train, feature_names)
-    x_te_clean = replace_special_codes(x_test, feature_names)
+    # 1. Clean CDC special survey codes if raw uncleaned data
+    if x_train.shape[1] == len(feature_names) and len(feature_names) > 250:
+        x_tr_clean = replace_special_codes(x_train, feature_names)
+        x_te_clean = replace_special_codes(x_test, feature_names)
 
-    # 2. Add companion skip-pattern indicator for HAREHAB1 before pruning
-    if "HAREHAB1" in feature_names:
-        h_idx = feature_names.index("HAREHAB1")
-        h_ind_tr = (~np.isnan(x_tr_clean[:, h_idx])).astype(np.float32)[:, np.newaxis]
-        h_ind_te = (~np.isnan(x_te_clean[:, h_idx])).astype(np.float32)[:, np.newaxis]
+        # 2. Add companion skip-pattern indicator for HAREHAB1 before pruning
+        if "HAREHAB1" in feature_names:
+            h_idx = feature_names.index("HAREHAB1")
+            h_ind_tr = (~np.isnan(x_tr_clean[:, h_idx])).astype(np.float32)[
+                :, np.newaxis
+            ]
+            h_ind_te = (~np.isnan(x_te_clean[:, h_idx])).astype(np.float32)[
+                :, np.newaxis
+            ]
 
-    # 3. Select columns based on training set statistics
-    keep_mask = select_columns(x_tr_clean, feature_names, max_nan_ratio=max_nan_ratio)
-    x_tr_sel = x_tr_clean[:, keep_mask]
-    x_te_sel = x_te_clean[:, keep_mask]
+        # 3. Select columns based on training set statistics
+        keep_mask = select_columns(
+            x_tr_clean, feature_names, max_nan_ratio=max_nan_ratio
+        )
+        x_tr_sel = x_tr_clean[:, keep_mask]
+        x_te_sel = x_te_clean[:, keep_mask]
+        active_names = [
+            feature_names[i] for i in range(len(feature_names)) if keep_mask[i]
+        ]
 
-    # 4. Fit median imputer on train and apply to both
-    fill_vals = fit_imputer(x_tr_sel)
-    x_tr_imp = apply_imputer(x_tr_sel, fill_vals, add_indicators=add_nan_indicators)
-    x_te_imp = apply_imputer(x_te_sel, fill_vals, add_indicators=add_nan_indicators)
+        if "HAREHAB1" in feature_names:
+            x_tr_sel = np.hstack([x_tr_sel, h_ind_tr])
+            x_te_sel = np.hstack([x_te_sel, h_ind_te])
+            active_names.append("HAREHAB1_ANSWERED")
+    else:
+        x_tr_sel = x_train
+        x_te_sel = x_test
+        active_names = list(feature_names)
 
-    # Append companion HAREHAB1 indicator
-    if "HAREHAB1" in feature_names:
-        x_tr_imp = np.hstack([x_tr_imp, h_ind_tr])
-        x_te_imp = np.hstack([x_te_imp, h_ind_te])
+    # 4. Feature engineering (missing indicators, nominal one-hot, clinical interactions)
+    tx_train, tx_test, out_names = engineer_features_fold(
+        x_tr=x_tr_sel,
+        x_te=x_te_sel,
+        feature_names=active_names,
+        add_missing_indicators=add_nan_indicators,
+        one_hot_nominal=one_hot_nominal,
+        clinical_interactions=clinical_interactions,
+        min_nan_ratio=0.05,
+        max_nan_ratio=max_nan_ratio,
+        drop_first_nominal=drop_first_nominal,
+        standardize_features=True,
+        add_bias=False,
+    )
 
-    # 5. Fit standardizer on train and apply to both
-    mean, std = fit_standardizer(x_tr_imp)
-    x_tr_std = standardize(x_tr_imp, mean, std)
-    x_te_std = standardize(x_te_imp, mean, std)
+    # 5. Polynomial expansion if degree > 1
+    if poly_degree > 1:
+        tx_train = build_poly(tx_train, poly_degree)
+        tx_test = build_poly(tx_test, poly_degree)
 
-    # 6. Polynomial expansion
-    x_tr_poly = build_poly(x_tr_std, poly_degree)
-    x_te_poly = build_poly(x_te_std, poly_degree)
-
-    # 7. Add intercept bias
-    tx_train = add_bias(x_tr_poly)
-    tx_test = add_bias(x_te_poly)
+    # 6. Add intercept bias
+    tx_train = add_bias(tx_train)
+    tx_test = add_bias(tx_test)
 
     return tx_train, tx_test

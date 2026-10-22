@@ -9,12 +9,26 @@ Log every official AIcrowd submission here so the entire team can trace which co
 
 | Date | Submission ID | Commit | Model & Configuration | CV F1 (+1) | AIcrowd F1 | AIcrowd Acc | Notes & Key Changes |
 |---|---|---|---|:---:|:---:|:---:|---|
-| 2026-10-22 | Sub-01 (`submission_baseline_logistic.csv`) | `3d33eb3` | Regularized Logistic ($\lambda=10^{-4}, \gamma=0.1, \tau^*=0.218$) | 0.4277 | - | - | First official baseline submission |
+| 2026-10-22 | Sub-01 (`submission_baseline_logistic.csv`) | `3d33eb3` | Regularized Logistic ($\lambda=10^{-4}, \gamma=0.1, \tau^*=0.218$) | 0.4277 | - | - | First official baseline submission (198 dims) |
+| 2026-10-22 | Sub-02 (`submission_feature_engineered.csv`) | `zhihao` | Feature-Engineered Logistic ($\lambda=10^{-4}, \gamma=0.15, \tau^*=0.210$) | 0.4311 | - | - | 333 dims: MNAR indicators + Nominal OHE + 5 Clinical interactions |
 
 ---
 
-## 2. Local 5-Fold Stratified CV Benchmark (Ablation Ledger)
-All evaluation results are evaluated via pure NumPy 5-fold stratified cross-validation on `data/processed/x_train.npy` (197 sanitized features, 328,135 samples).
+## 2. Table 2: Progressive Feature Engineering Ablation Study (Milestone 4)
+Evaluated via pure-NumPy Stratified 5-Fold Cross-Validation (seed=42) on `data/processed/` with strict zero-leakage threshold calibration on training folds.
+
+| Step | Transformation / Hypothesis | Total Dims ($D$) | Val Accuracy | Val Precision | Val Recall | Balanced Acc | Val F1 (+1) | Calibrated $\tau^*$ | Marginal $\Delta F_1$ |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Step 0** | Baseline (197 sanitized features) | 198 | $87.22\%$ | $0.3543$ | $54.05\%$ | $72.24\%$ | $0.4277 \pm 0.0027$ | $0.218$ | - |
+| **Step 1** | + Missingness Indicators ($M_{ij} \in [5\%, 85\%]$) | 312 | $87.21\%$ | $0.3540$ | $\mathbf{54.25\%}$ | $72.32\%$ | $0.4283 \pm 0.0031$ | $0.218$ | $+0.0006$ |
+| **Step 2** | + Nominal One-Hot (`MARITAL`, `EMPLOY1`, `_RACE`) | 328 | $87.24\%$ | $0.3548$ | $54.24\%$ | $\mathbf{72.34\%}$ | $0.4288 \pm 0.0026$ | $0.218$ | $+0.0005$ |
+| **Step 3** | + Clinical Non-linear Interactions (5 Cross-terms) | 333 | $87.54\%$ | $0.3606$ | $53.21\%$ | $72.04\%$ | $0.4298 \pm 0.0021$ | $0.224$ | $+0.0010$ |
+| **Step 4** | + Tuned Hyperparameters ($\lambda^*=10^{-4}, \gamma^*=0.15$) | 333 | $\mathbf{87.69\%}$ | $\mathbf{0.3646}$ | $52.83\%$ | $71.95\%$ | $\mathbf{0.4311 \pm 0.0018}$ | $0.212$ | $+0.0013$ |
+
+---
+
+## 3. Local 5-Fold Stratified CV Baseline Benchmark
+Evaluated across baselines to establish the lower bound performance on sanitized features:
 
 | Exp ID | Model Architecture | Threshold $\tau$ | Val Accuracy | Val Precision | Val Recall | Balanced Acc | Val F1 (+1) | Notes / Improvements |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
