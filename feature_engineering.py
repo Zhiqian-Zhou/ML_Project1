@@ -651,15 +651,107 @@ def build_clinical_subgroup_terms(x_tr_imp, x_te_imp=None, feature_names=None):
     return sub_tr, sub_names
 
 
+def build_vascular_synergy_terms(x_tr_imp, x_te_imp=None, feature_names=None):
+    """Construct 8 high-mortality vascular conjunctions and 2 low-risk demographic anchors.
+
+    High-Mortality Vascular Conjunctions (pos rate 39% - 53%, 4.4x - 6.0x lift):
+    1. STROKE_x_COPD: CVDSTRK3 == 1.0 & CHCCOPD1 == 1.0 (52.9% pos rate, 6.0x lift)
+    2. DIABETE_x_STROKE: DIABETE3 == 1.0 & CVDSTRK3 == 1.0 (48.9% pos rate, 5.5x lift)
+    3. STROKE_x_POORHLTH: CVDSTRK3 == 1.0 & GENHLTH >= 4.0 (47.1% pos rate, 5.3x lift)
+    4. COPD_x_KIDNEY: CHCCOPD1 == 1.0 & CHCKIDNY == 1.0 (46.0% pos rate, 5.2x lift)
+    5. STROKE_x_DIFFWALK: CVDSTRK3 == 1.0 & DIFFWALK == 1.0 (45.4% pos rate, 5.1x lift)
+    6. DIABETE_x_COPD: DIABETE3 == 1.0 & CHCCOPD1 == 1.0 (40.1% pos rate, 4.5x lift)
+    7. DIABETE_x_KIDNEY: DIABETE3 == 1.0 & CHCKIDNY == 1.0 (39.5% pos rate, 4.5x lift)
+    8. POORHLTH_x_KIDNEY: GENHLTH >= 4.0 & CHCKIDNY == 1.0 (39.0% pos rate, 4.4x lift)
+
+    Low-Risk Demographic Anchors (pos rate < 2.0%, 0.18x - 0.22x lift):
+    9. YOUNG_FEMALE: (_AGEG5YR <= 6.0) & (SEX == 2.0) (1.61% pos rate, 0.18x lift)
+    10. YOUNG_MALE: (_AGEG5YR <= 6.0) & (SEX == 1.0) (1.97% pos rate, 0.22x lift)
+    """
+    if feature_names is None:
+        raise ValueError("feature_names is required.")
+
+    name_to_idx = {name: i for i, name in enumerate(feature_names)}
+
+    def extract_vascular_matrix(arr):
+        stroke = arr[:, name_to_idx["CVDSTRK3"]] == 1.0
+        copd = arr[:, name_to_idx["CHCCOPD1"]] == 1.0
+        diab = arr[:, name_to_idx["DIABETE3"]] == 1.0
+        kidney = arr[:, name_to_idx["CHCKIDNY"]] == 1.0
+        diff = arr[:, name_to_idx["DIFFWALK"]] == 1.0
+        poorhlth = arr[:, name_to_idx["GENHLTH"]] >= 4.0
+        age = arr[:, name_to_idx["_AGEG5YR"]]
+        sex = arr[:, name_to_idx["SEX"]]
+
+        # 8 High-Mortality Vascular Conjunctions
+        stroke_x_copd = (stroke & copd).astype(np.float32)
+        diabete_x_stroke = (diab & stroke).astype(np.float32)
+        stroke_x_poorhlth = (stroke & poorhlth).astype(np.float32)
+        copd_x_kidney = (copd & kidney).astype(np.float32)
+        stroke_x_diffwalk = (stroke & diff).astype(np.float32)
+        diabete_x_copd = (diab & copd).astype(np.float32)
+        diabete_x_kidney = (diab & kidney).astype(np.float32)
+        poorhlth_x_kidney = (poorhlth & kidney).astype(np.float32)
+
+        # 2 Low-Risk Demographic Anchors
+        young_female = ((age <= 6.0) & (sex == 2.0)).astype(np.float32)
+        young_male = ((age <= 6.0) & (sex == 1.0)).astype(np.float32)
+
+        return np.column_stack(
+            [
+                stroke_x_copd,
+                diabete_x_stroke,
+                stroke_x_poorhlth,
+                copd_x_kidney,
+                stroke_x_diffwalk,
+                diabete_x_copd,
+                diabete_x_kidney,
+                poorhlth_x_kidney,
+                young_female,
+                young_male,
+            ]
+        )
+
+    vasc_tr = extract_vascular_matrix(x_tr_imp)
+    vasc_te = extract_vascular_matrix(x_te_imp) if x_te_imp is not None else None
+
+    vasc_names = [
+        "STROKE_x_COPD",
+        "DIABETE_x_STROKE",
+        "STROKE_x_POORHLTH",
+        "COPD_x_KIDNEY",
+        "STROKE_x_DIFFWALK",
+        "DIABETE_x_COPD",
+        "DIABETE_x_KIDNEY",
+        "POORHLTH_x_KIDNEY",
+        "YOUNG_FEMALE",
+        "YOUNG_MALE",
+    ]
+
+    # Standardize vascular terms using training statistics
+    vasc_mean = np.mean(vasc_tr, axis=0)
+    vasc_std = np.std(vasc_tr, axis=0)
+    vasc_std[vasc_std == 0.0] = 1.0
+
+    vasc_tr = (vasc_tr - vasc_mean) / vasc_std
+    if vasc_te is not None:
+        vasc_te = (vasc_te - vasc_mean) / vasc_std
+
+    if x_te_imp is not None:
+        return vasc_tr, vasc_te, vasc_names
+    return vasc_tr, vasc_names
+
+
 def build_advanced_features(x_tr, x_te=None, feature_names=None, y_tr=None, alpha=20.0):
-    """Construct the rich, clinical 223-dimensional design matrix.
+    """Construct the rich, clinical 233-dimensional design matrix.
 
     Components:
     1. Base Streamlined Features (205 dims): 197 base + 5 cross-terms + 2 quad + 1 bias.
     2. Extended Empirical Bayesian WoE (8 dims): target-encoded categorical features.
     3. Clinical Subgroup Bias-Correcting Terms (10 dims): interaction terms for elderly/young subgroups.
+    4. Vascular Multi-Morbidity Synergy Terms (10 dims): 8 high-lift vascular terms + 2 low-risk anchors.
 
-    Total Dimensions: 205 + 8 + 10 = 223 dims.
+    Total Dimensions: 205 + 8 + 10 + 10 = 233 dims.
     """
     if feature_names is None:
         raise ValueError("feature_names is required.")
@@ -697,7 +789,7 @@ def build_advanced_features(x_tr, x_te=None, feature_names=None, y_tr=None, alph
         )
         woe_te = None
 
-    # 3. Clinical subgroup bias-correcting terms (10 dims)
+    # 3. Median impute features strictly from training fold before computing interaction terms
     med = np.nanmedian(x_tr, axis=0)
     med = np.nan_to_num(med, nan=0.0)
 
@@ -716,6 +808,7 @@ def build_advanced_features(x_tr, x_te=None, feature_names=None, y_tr=None, alph
     else:
         x_te_imp = None
 
+    # Clinical subgroup bias-correcting terms (10 dims)
     if x_te is not None:
         sub_tr, sub_te, sub_names = build_clinical_subgroup_terms(
             x_tr_imp, x_te_imp, feature_names=feature_names
@@ -726,12 +819,23 @@ def build_advanced_features(x_tr, x_te=None, feature_names=None, y_tr=None, alph
         )
         sub_te = None
 
-    # Assemble 223 dimensions
-    tx_tr = np.column_stack([base_tr, woe_tr, sub_tr])
-    out_names = list(base_names) + list(woe_names) + list(sub_names)
+    # 4. Vascular multi-morbidity synergy terms (10 dims)
+    if x_te is not None:
+        vasc_tr, vasc_te, vasc_names = build_vascular_synergy_terms(
+            x_tr_imp, x_te_imp, feature_names=feature_names
+        )
+    else:
+        vasc_tr, vasc_names = build_vascular_synergy_terms(
+            x_tr_imp, feature_names=feature_names
+        )
+        vasc_te = None
+
+    # Assemble 233 dimensions
+    tx_tr = np.column_stack([base_tr, woe_tr, sub_tr, vasc_tr])
+    out_names = list(base_names) + list(woe_names) + list(sub_names) + list(vasc_names)
 
     if x_te is not None:
-        tx_te = np.column_stack([base_te, woe_te, sub_te])
+        tx_te = np.column_stack([base_te, woe_te, sub_te, vasc_te])
         return tx_tr, tx_te, out_names
     return tx_tr, out_names
 

@@ -1,18 +1,19 @@
 """Reproduce our best AIcrowd submission from scratch.
 
-Pipeline (Milestone 6.5 SOTA Super Tri-Blend):
+Pipeline (Milestone 6.6 SOTA Super Tri-Blend):
 1. CDC survey code sanitation & leak-free median imputation.
 2. 5 Clinically grounded synergistic cross-terms (Framingham epidemiology) + 2 quadratics.
 3. Extended Empirical Bayesian Log-Odds Encoding (WoE) across 8 key demographic/clinical features.
-4. 10 Clinical subgroup bias-correcting and risk-linearizing terms (223 dimensions total).
-5. Super Tri-Blend of 3 heterogeneous sub-models with Simplex-Optimized Weights:
+4. 10 Clinical subgroup bias-correcting and risk-linearizing terms.
+5. 10 Vascular Multi-Morbidity Synergy Conjunctions & Low-Risk Demographic Anchors (233 dimensions total).
+6. Super Tri-Blend of 3 heterogeneous sub-models with Simplex-Optimized Weights:
    - Model 1: Cost-Sensitive Weighted Ridge (lambda = 1e-4, w_pos = 3.0, weight = 0.35)
    - Model 2: Stratified Hard-Negative Balanced Logistic Bagging (M = 15 models, 50% hard + 50% easy negatives, weight = 0.40)
    - Model 3: Differentiable Soft-F1 Metric Alignment via Adam (max_iters = 250, lr = 0.03, weight = 0.25)
-6. Dynamic decision threshold calibration tau* on blended uniform percentile ranks.
+7. Dynamic decision threshold calibration tau* on blended uniform percentile ranks.
 
 Usage:
-    python run.py --data_path data/dataset --output submissions/submission_sota_m6_5.csv
+    python run.py --data_path data/dataset --output submissions/submission_sota_m6_6.csv
 """
 
 import argparse
@@ -75,12 +76,12 @@ def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data_path", default="data/dataset")
-    parser.add_argument("--output", default="submissions/submission_sota_m6_5.csv")
+    parser.add_argument("--output", default="submissions/submission_sota_m6_6.csv")
     parser.add_argument(
         "--model",
         choices=["super_blend", "weighted_ridge", "logistic"],
         default="super_blend",
-        help="Model architecture: 'super_blend' (default best M6.5), 'weighted_ridge', or 'logistic'.",
+        help="Model architecture: 'super_blend' (default best M6.6), 'weighted_ridge', or 'logistic'.",
     )
     return parser.parse_args()
 
@@ -124,8 +125,8 @@ def main():
         f"positive ratio={np.mean(y_train == 1):.4%} (loaded in {time.time() - t_load:.2f}s)"
     )
 
-    # 2. Build rich, clinical 223-dimensional design matrix
-    print("Building advanced 223-dimensional clinical design matrix...")
+    # 2. Build rich, clinical 233-dimensional design matrix
+    print("Building advanced 233-dimensional clinical design matrix...")
     t_feat = time.time()
     tx_train, tx_test, feature_out_names = build_advanced_features(
         x_train, x_test, feature_names=feature_names, y_tr=y_train, alpha=20.0
@@ -140,7 +141,7 @@ def main():
     if args.model == "super_blend":
         w1, w2, w3 = CONFIG["blend_weights"]
         print(
-            f"Training Milestone 6.5 Super Tri-Blend ({w1:.2f} Weighted Ridge + "
+            f"Training Milestone 6.6 Super Tri-Blend ({w1:.2f} Weighted Ridge + "
             f"{w2:.2f} Hard-Negative Logistic Bagging + {w3:.2f} Soft-F1 Optimizer)..."
         )
 
