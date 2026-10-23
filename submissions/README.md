@@ -12,7 +12,8 @@ Log every official AIcrowd submission here so the entire team can trace which co
 | 2026-10-22 | Sub-01 (`submission_baseline_logistic.csv`) | `3d33eb3` | Regularized Logistic ($\lambda=10^{-4}, \gamma=0.1, \tau^*=0.218$) | 0.4277 | - | - | First official baseline submission (198 dims) |
 | 2026-10-22 | Sub-02 (`submission_feature_engineered.csv`) | `zhihao` | Feature-Engineered Logistic ($\lambda=10^{-4}, \gamma=0.15, \tau^*=0.210$) | 0.4311 | - | - | 333 dims: MNAR indicators + Nominal OHE + 5 Clinical interactions |
 | 2026-10-23 | Sub-03 (`submission_sota.csv`) | `5aff7db` | SOTA Heterogeneous Rank Blend (0.45 Ridge + 0.35 Logistic + 0.20 Bagging + WoE Log-Odds) | 0.4320 | - | - | Milestone 5 Peak; 209 dims; leak-free WoE priors & percentile rank blending |
-| 2026-10-23 | Sub-04 (`submission_super_blend.csv`) | `zhihao` | **Milestone 6 Super Tri-Blend** (0.35 Ridge + 0.35 Balanced Logistic Bagging + 0.30 Soft-F1) | **0.4335** | - | - | **New Leaderboard SOTA (109,380 rows)**; 223 dims; clinical subgroup bias corrections + metric alignment |
+| 2026-10-23 | Sub-04 (`submission_super_blend.csv`) | `f5af80e` | Milestone 6 Super Tri-Blend (0.35 Ridge + 0.35 Balanced Logistic Bagging + 0.30 Soft-F1) | 0.4335 | - | - | 223 dims; clinical subgroup bias corrections + soft-F1 metric alignment |
+| 2026-10-23 | Sub-05 (`submission_sota_m6_5.csv`) | `zhihao` | **Milestone 6.5 SOTA Super Tri-Blend** (0.35 Ridge + 0.40 Hard-Neg Bagging + 0.25 Soft-F1) | **0.4341** | - | - | **New Leaderboard SOTA (109,380 rows)**; clinical risk stratification + simplex-optimized weights |
 
 ---
 
@@ -61,32 +62,26 @@ Evaluated via pure-NumPy Stratified 5-Fold Cross-Validation (`seed=42`) on the c
 | **Model 3: Differentiable Soft-F1 Optimizer** | $0.30$ | $87.62\%$ | $0.3635$ | $52.05\%$ | $71.55\%$ | $0.4273 \pm 0.0031$ | $+0.4600$ |
 | **Super Tri-Blend Ensemble (M6)** | **[0.35, 0.35, 0.30]** | $\mathbf{87.58 \pm 0.09\%}$ | $\mathbf{0.3630 \pm 0.0020}$ | $\mathbf{53.81 \pm 0.0091}$ | $\mathbf{72.33 \pm 0.0038}$ | $\mathbf{0.4335 \pm 0.0034}$ | $\mathbf{+0.8670}$ |
 
-### Fold-by-Fold Breakdown:
-- Fold 1: Val F1 = **0.4336** (Prec = 0.3659, Rec = 0.5318, BAcc = 0.7213)
-- Fold 2: Val F1 = **0.4340** (Prec = 0.3608, Rec = 0.5443, BAcc = 0.7254)
-- Fold 3: Val F1 = **0.4272** (Prec = 0.3609, Rec = 0.5232, BAcc = 0.7167)
-- Fold 4: Val F1 = **0.4373** (Prec = 0.3645, Rec = 0.5465, BAcc = 0.7271)
-- Fold 5: Val F1 = **0.4355** (Prec = 0.3629, Rec = 0.5444, BAcc = 0.7259)
-
 ---
 
-## 5. Cost-Sensitive Class-Weighted Learning Benchmark (Streamlined 205 Dims)
+## 5. Table 5: Milestone 6.5 - Advanced Resampling & Algorithmic Innovations Ablation
+Evaluated strictly via 5-Fold Stratified Cross-Validation (`seed=42`) on the 223-dimensional feature space. Thresholds calibrated strictly on training folds:
 
-Because the dataset exhibits severe positive class imbalance (8.83% positive), unweighted loss gradients are heavily dominated by the majority negative class. We implemented pure-NumPy sample-weighted Ridge Regression via the exact closed-form normal equations:
-$$\mathbf{w}^* = (\mathbf{X}^T \mathbf{W} \mathbf{X} + 2N\lambda \mathbf{I})^{-1} \mathbf{X}^T \mathbf{W} \mathbf{y}$$
-where sample weight $w_i = w_{pos}$ for positive cases ($y_i = +1$), and $1.0$ for negative cases ($y_i = -1$).
+| Resampling / Algorithmic Hypothesis | Core Mechanism | Val Accuracy | Val Precision | Val Recall | Balanced Acc | Val F1 (+1) | Calibrated $\tau^*$ | Outcome / Verdict |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Hypothesis 1: Stratified Hard-Negative Bagging** | 50% hard negatives (`risk_score >= 2`) + 50% easy negatives per balanced bag ($M=15$) | $87.58\%$ | $0.3645$ | $53.16\%$ | $72.08\%$ | $\mathbf{0.4322 \pm 0.0042}$ | $+0.4850$ | **Validated (+0.0013 over Uniform Bagging 0.4309)** |
+| **Hypothesis 1: Standard Uniform Bagging** | Uniform random undersampling of negatives per balanced bag ($M=15$) | $87.55\%$ | $0.3674$ | $52.13\%$ | $71.72\%$ | $0.4309 \pm 0.0042$ | $+0.4850$ | Baseline Bagging comparator |
+| **Hypothesis 2: Continuous Borderline-SMOTE** | $5,000$ synthetic positives interpolated strictly along continuous/WoE axes + Weighted Ridge | $85.62\%$ | $0.3321$ | $\mathbf{60.15\%}$ | $\mathbf{74.21\%}$ | $0.4278 \pm 0.0024$ | $-0.1800$ | **Negative Result (Precision collapsed -3.12%)** |
+| **Unaugmented Weighted Ridge (Reference)** | Standard closed-form solve on 223 dims ($w_{pos}=3.0, \lambda=10^{-4}$) | $87.58\%$ | $0.3633$ | $53.46\%$ | $72.18\%$ | $0.4324 \pm 0.0036$ | $-0.1400$ | Standard closed-form comparator |
+| **Hypothesis 3: Simplex-Optimized Super Tri-Blend** | **Hard-Negative Bagging Tri-Blend** with weights $[0.35, 0.40, 0.25]$ | $\mathbf{87.76 \pm 0.09\%}$ | $\mathbf{0.3667 \pm 0.0034}$ | $53.19 \pm 0.0043$ | $72.15 \pm 0.0024$ | $\mathbf{0.4341 \pm 0.0038}$ | $\mathbf{+0.8700}$ | **New All-Time SOTA Peak (+0.0006 over M6)** |
 
-### Stratified 5-Fold Cross-Validation Comparison:
-
-| Model Architecture | Positive Weight ($w_{pos}$) | Val Accuracy | Val Precision | Val Recall | Balanced Acc | Val F1 (+1) | Calibrated $\tau^*$ | 5-Fold Time |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Weighted Ridge** | $1.0$ | $87.39\%$ | $0.3565$ | $53.10\%$ | $71.91\%$ | $0.4265 \pm 0.0032$ | $-0.5560$ | **7.71s** |
-| **Weighted Ridge** | $1.5$ | $87.36\%$ | $0.3570$ | $53.70\%$ | $72.16\%$ | $0.4287 \pm 0.0027$ | $-0.4200$ | **8.16s** |
-| **Weighted Ridge** | $2.0$ | $87.27\%$ | $0.3558$ | $\mathbf{54.34\%}$ | $\mathbf{72.40\%}$ | $0.4299 \pm 0.0030$ | $-0.3160$ | **7.59s** |
-| **Weighted Ridge** | $2.5$ | $87.35\%$ | $0.3574$ | $54.18\%$ | $72.37\%$ | $0.4306 \pm 0.0031$ | $-0.2240$ | **7.09s** |
-| **Weighted Ridge** | **$3.0$** | $\mathbf{87.56\%}$ | $\mathbf{0.3615}$ | $53.35\%$ | $72.11\%$ | $\mathbf{0.4309 \pm 0.0032}$ | $-0.1400$ | **7.53s** |
-| **Weighted Ridge** | $5.0$ | $87.52\%$ | $0.3608$ | $53.41\%$ | $72.12\%$ | $0.4305 \pm 0.0031$ | $+0.0720$ | **8.73s** |
-| **Regularized Logistic** | $1.0$ | $87.41\%$ | $0.3586$ | $53.92\%$ | $72.29\%$ | $0.4307 \pm 0.0028$ | $+0.2080$ | 52.54s |
+### Key Findings & Insights:
+1. **Hard-Negative Stratification Focuses Gradient Capacity**:
+   Partitioning negatives by clinical risk score ($\text{risk} \ge 2$: 42.4% of negatives who share multi-morbidity risk factors with positives) forces the logistic ensemble to resolve subtle non-linear margin distinctions. Across all 5 folds, hard-negative bagging improved F1 from $0.4309 \to 0.4322$.
+2. **Continuous SMOTE Creates Artificial Corridor Noise**:
+   Generating synthetic positives in Euclidean continuous space caused precision to collapse from $36.33\%$ to $33.21\%$. In telephone survey data, linear interpolation between minority respondents synthesizes unviable clinical phenotypes, generating false positive predictions.
+3. **Simplex Weight Optimization ($[0.35, 0.40, 0.25]$)**:
+   Shifting weight from Soft-F1 ($0.30 \to 0.25$) into Hard-Negative Bagging ($0.35 \to 0.40$) produced our highest overall cross-validation score: **$F_1 = 0.4341 \pm 0.0038$** (Fold 4 reached $0.4383$).
 
 ---
 
@@ -115,9 +110,34 @@ To ensure scientific rigor and avoid confirmation bias, we explicitly document e
    - While execution was fast (29.0s for 5 folds), the model overfit the training folds (Train F1 = $0.4644$) while underperforming on validation folds (Val F1 = $0.4272 \pm 0.0020$).
    - *Rationale*: BRFSS is self-reported telephone survey data characterized by non-Gaussian measurement noise and high missingness. Unconstrained hidden layers easily fit idiosyncratic noise configurations in the feature space. Strongly regularized convex linear models ($\ell_2$-regularized Ridge and Logistic) alongside rank-order ensemble blending impose the right inductive bias for noisy tabular surveys.
 
+5. **Continuous-Subspace Borderline-SMOTE Degraded Precision on Survey Data**:
+   - We implemented vectorized pure-NumPy Borderline-SMOTE generating 5,000 synthetic boundary positives strictly interpolated along continuous and WoE axes.
+   - Although validation recall surged from $53.46\%$ to $60.15\%$ (+6.69%), validation precision plummeted from $36.33\%$ to $33.21\%$ (-3.12%), dropping overall $F_1$ from $0.4324 \to 0.4278$ (-0.0046).
+   - *Rationale*: In tabular epidemiological data, true cardiovascular disease risk does not vary continuously across Euclidean lines between individuals. Linearly interpolating between two vulnerable respondents creates synthetic individuals with unrealistic clinical profiles (e.g., conflicting risk markers) that dilute model precision.
+
 ---
 
-## 7. Local 5-Fold Stratified CV Baseline Benchmark
+## 7. Cost-Sensitive Class-Weighted Learning Benchmark (Streamlined 205 Dims)
+
+Because the dataset exhibits severe positive class imbalance (8.83% positive), unweighted loss gradients are heavily dominated by the majority negative class. We implemented pure-NumPy sample-weighted Ridge Regression via the exact closed-form normal equations:
+$$\mathbf{w}^* = (\mathbf{X}^T \mathbf{W} \mathbf{X} + 2N\lambda \mathbf{I})^{-1} \mathbf{X}^T \mathbf{W} \mathbf{y}$$
+where sample weight $w_i = w_{pos}$ for positive cases ($y_i = +1$), and $1.0$ for negative cases ($y_i = -1$).
+
+### Stratified 5-Fold Cross-Validation Comparison:
+
+| Model Architecture | Positive Weight ($w_{pos}$) | Val Accuracy | Val Precision | Val Recall | Balanced Acc | Val F1 (+1) | Calibrated $\tau^*$ | 5-Fold Time |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Weighted Ridge** | $1.0$ | $87.39\%$ | $0.3565$ | $53.10\%$ | $71.91\%$ | $0.4265 \pm 0.0032$ | $-0.5560$ | **7.71s** |
+| **Weighted Ridge** | $1.5$ | $87.36\%$ | $0.3570$ | $53.70\%$ | $72.16\%$ | $0.4287 \pm 0.0027$ | $-0.4200$ | **8.16s** |
+| **Weighted Ridge** | $2.0$ | $87.27\%$ | $0.3558$ | $\mathbf{54.34\%}$ | $\mathbf{72.40\%}$ | $0.4299 \pm 0.0030$ | $-0.3160$ | **7.59s** |
+| **Weighted Ridge** | $2.5$ | $87.35\%$ | $0.3574$ | $54.18\%$ | $72.37\%$ | $0.4306 \pm 0.0031$ | $-0.2240$ | **7.09s** |
+| **Weighted Ridge** | **$3.0$** | $\mathbf{87.56\%}$ | $\mathbf{0.3615}$ | $53.35\%$ | $72.11\%$ | $\mathbf{0.4309 \pm 0.0032}$ | $-0.1400$ | **7.53s** |
+| **Weighted Ridge** | $5.0$ | $87.52\%$ | $0.3608$ | $53.41\%$ | $72.12\%$ | $0.4305 \pm 0.0031$ | $+0.0720$ | **8.73s** |
+| **Regularized Logistic** | $1.0$ | $87.41\%$ | $0.3586$ | $53.92\%$ | $72.29\%$ | $0.4307 \pm 0.0028$ | $+0.2080$ | 52.54s |
+
+---
+
+## 8. Local 5-Fold Stratified CV Baseline Benchmark
 Evaluated across baselines to establish the lower bound performance on sanitized features:
 
 | Exp ID | Model Architecture | Threshold $\tau$ | Val Accuracy | Val Precision | Val Recall | Balanced Acc | Val F1 (+1) | Notes / Improvements |
@@ -130,7 +150,7 @@ Evaluated across baselines to establish the lower bound performance on sanitized
 
 ---
 
-## 8. Critical Findings & Pitfalls Avoided (For Teammates)
+## 9. Critical Findings & Pitfalls Avoided (For Teammates)
 
 Please review these findings before writing modeling or preprocessing code:
 

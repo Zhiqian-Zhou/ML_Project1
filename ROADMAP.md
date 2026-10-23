@@ -44,5 +44,7 @@
 | M5-Hypothesis-B | 2026-10-23 | Multi-Model Heterogeneous Rank Blend + WoE (0.45 Ridge + 0.35 Log + 0.20 Bag) | 0.8749 | **0.4320 +/- 0.0033** | 0.7230 | **Sub-03 (SOTA)** |
 | M5-Hypothesis-C | 2026-10-23 | Pure-NumPy 2-Layer Neural Network (D=205 -> H=64 ReLU -> 1 Sigmoid) | 0.8778 | 0.4272 +/- 0.0020 | 0.7145 | Train F1=0.4644 (Overfitting) |
 | M5-Hypothesis-D | 2026-10-23 | Clinical Multi-morbidity Stacking Score (0-7 index + Ridge) | 0.8757 | 0.4312 +/- 0.0032 | 0.7213 | Competitive (8.1s) |
-| M6-Super-Blend | 2026-10-23 | Super Tri-Blend (223 dims: 205 base + 8 WoE + 10 Subgroups; Ridge + Bagging + Soft-F1) | 0.8758 | **0.4335 +/- 0.0034** | 0.7233 | **Sub-04 (New SOTA)** |
+| M6-Super-Blend | 2026-10-23 | Super Tri-Blend (223 dims: 205 base + 8 WoE + 10 Subgroups; Ridge + Bagging + Soft-F1) | 0.8758 | 0.4335 +/- 0.0034 | 0.7233 | Sub-04 (M6 Peak) |
+| M6.5-Resampling-Blend | 2026-10-23 | Hard-Negative Bagging Tri-Blend (223 dims; weights [0.35, 0.40, 0.25]) | 0.8776 | **0.4341 +/- 0.0038** | 0.7215 | **Sub-05 (All-Time Peak)** |
+
 

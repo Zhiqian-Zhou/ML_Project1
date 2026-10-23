@@ -1,18 +1,18 @@
 """Reproduce our best AIcrowd submission from scratch.
 
-Pipeline (Milestone 6 Super Tri-Blend):
+Pipeline (Milestone 6.5 SOTA Super Tri-Blend):
 1. CDC survey code sanitation & leak-free median imputation.
 2. 5 Clinically grounded synergistic cross-terms (Framingham epidemiology) + 2 quadratics.
 3. Extended Empirical Bayesian Log-Odds Encoding (WoE) across 8 key demographic/clinical features.
 4. 10 Clinical subgroup bias-correcting and risk-linearizing terms (223 dimensions total).
-5. Super Tri-Blend of 3 heterogeneous sub-models:
+5. Super Tri-Blend of 3 heterogeneous sub-models with Simplex-Optimized Weights:
    - Model 1: Cost-Sensitive Weighted Ridge (lambda = 1e-4, w_pos = 3.0, weight = 0.35)
-   - Model 2: Balanced Logistic Bagging (M = 15 models, 1:1 subsamples, max_iters = 200, gamma = 0.3, weight = 0.35)
-   - Model 3: Differentiable Soft-F1 Metric Alignment via Adam (max_iters = 250, lr = 0.03, weight = 0.30)
+   - Model 2: Stratified Hard-Negative Balanced Logistic Bagging (M = 15 models, 50% hard + 50% easy negatives, weight = 0.40)
+   - Model 3: Differentiable Soft-F1 Metric Alignment via Adam (max_iters = 250, lr = 0.03, weight = 0.25)
 6. Dynamic decision threshold calibration tau* on blended uniform percentile ranks.
 
 Usage:
-    python run.py --data_path data/dataset --output submissions/submission_super_blend.csv
+    python run.py --data_path data/dataset --output submissions/submission_sota_m6_5.csv
 """
 
 import argparse
@@ -39,7 +39,7 @@ CONFIG = {
     "n_bags": 15,
     "lr_soft_f1": 0.03,
     "max_iters_soft_f1": 250,
-    "blend_weights": (0.35, 0.35, 0.30),
+    "blend_weights": (0.35, 0.40, 0.25),
 }
 
 
@@ -48,16 +48,39 @@ def rank_normalize(scores):
     return np.argsort(np.argsort(scores)) / float(len(scores))
 
 
+def compute_clinical_risk_scores(x_arr, feature_names):
+    """Compute composite clinical vulnerability score (0 to 7) for negative stratification."""
+    name_to_idx = {name: i for i, name in enumerate(feature_names)}
+    age = x_arr[:, name_to_idx["_AGEG5YR"]]
+    hbp = x_arr[:, name_to_idx["_RFHYPE5"]]
+    chol = x_arr[:, name_to_idx["_RFCHOL"]]
+    smoker = x_arr[:, name_to_idx["_SMOKER3"]]
+    diabete = x_arr[:, name_to_idx["DIABETE3"]]
+    stroke = x_arr[:, name_to_idx["CVDSTRK3"]]
+    genhlth = x_arr[:, name_to_idx["GENHLTH"]]
+
+    risk_score = (
+        (age >= 10.0).astype(int)
+        + (hbp == 2.0).astype(int)
+        + (chol == 2.0).astype(int)
+        + ((smoker == 1.0) | (smoker == 2.0)).astype(int)
+        + (diabete == 1.0).astype(int)
+        + (stroke == 1.0).astype(int)
+        + (genhlth >= 4.0).astype(int)
+    )
+    return risk_score
+
+
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data_path", default="data/dataset")
-    parser.add_argument("--output", default="submissions/submission_super_blend.csv")
+    parser.add_argument("--output", default="submissions/submission_sota_m6_5.csv")
     parser.add_argument(
         "--model",
         choices=["super_blend", "weighted_ridge", "logistic"],
         default="super_blend",
-        help="Model architecture: 'super_blend' (default best M6), 'weighted_ridge', or 'logistic'.",
+        help="Model architecture: 'super_blend' (default best M6.5), 'weighted_ridge', or 'logistic'.",
     )
     return parser.parse_args()
 
@@ -117,8 +140,8 @@ def main():
     if args.model == "super_blend":
         w1, w2, w3 = CONFIG["blend_weights"]
         print(
-            f"Training Milestone 6 Super Tri-Blend ({w1:.2f} Weighted Ridge + "
-            f"{w2:.2f} Balanced Logistic Bagging + {w3:.2f} Soft-F1 Optimizer)..."
+            f"Training Milestone 6.5 Super Tri-Blend ({w1:.2f} Weighted Ridge + "
+            f"{w2:.2f} Hard-Negative Logistic Bagging + {w3:.2f} Soft-F1 Optimizer)..."
         )
 
         # Model 1: Cost-Sensitive Weighted Ridge
@@ -134,21 +157,32 @@ def main():
         s1_te = tx_test @ w_ridge
         print(f"        M1 finished in {time.time() - t0:.2f}s")
 
-        # Model 2: Balanced Logistic Bagging (M = 15 models on 1:1 subsamples)
+        # Model 2: Stratified Hard-Negative Balanced Logistic Bagging
         print(
-            f"  [2/3] Training Balanced Logistic Bagging (M={CONFIG['n_bags']} bags, max_iters={CONFIG['max_iters_logistic']})..."
+            f"  [2/3] Training Stratified Hard-Negative Logistic Bagging (M={CONFIG['n_bags']} bags, max_iters={CONFIG['max_iters_logistic']})..."
         )
         t0 = time.time()
         pos_idx = np.where(y_train == 1)[0]
         neg_idx = np.where(y_train == -1)[0]
         n_pos = len(pos_idx)
-        rng = np.random.default_rng(SEED)
 
+        risk_scores_tr = compute_clinical_risk_scores(x_train, feature_names)
+        hard_neg_idx = neg_idx[risk_scores_tr[neg_idx] >= 2]
+        easy_neg_idx = neg_idx[risk_scores_tr[neg_idx] <= 1]
+        print(
+            f"        Clinical negative stratification: {len(hard_neg_idx)} hard negatives (score >= 2), "
+            f"{len(easy_neg_idx)} easy negatives (score <= 1)"
+        )
+
+        rng = np.random.default_rng(SEED)
         bag_tr = np.zeros(len(tx_train))
         bag_te = np.zeros(len(tx_test))
+        n_half = n_pos // 2
+
         for m in range(CONFIG["n_bags"]):
-            sub_neg = rng.choice(neg_idx, size=n_pos, replace=False)
-            sub_idx = np.concatenate([pos_idx, sub_neg])
+            sub_hard = rng.choice(hard_neg_idx, size=n_half, replace=False)
+            sub_easy = rng.choice(easy_neg_idx, size=n_pos - n_half, replace=False)
+            sub_idx = np.concatenate([pos_idx, sub_hard, sub_easy])
             y_sub_01 = (y_train[sub_idx] == 1).astype(float)
             w0 = np.zeros(tx_train.shape[1])
             w_bag, _ = reg_logistic_regression(
