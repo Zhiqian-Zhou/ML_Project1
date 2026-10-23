@@ -17,7 +17,7 @@
 | **M3** | Pure-NumPy CV Harness | `[x]` | `cross_validation.py` & `metrics.py` | Stratified 5-Fold, F1=0.4277 (Logistic), F1=0.4231 (Ridge) |
 | **M4** | Feature Engineering | `[x]` | `feature_engineering.py` | MNAR masks, nominal one-hot, 5 clinical interactions (F1=0.4311) |
 | **M5** | Bold Hypotheses & Ensembles | `[x]` | `benchmark_hypotheses.py` | 4 hypotheses evaluated: WoE, Rank Blend, 2-Layer MLP, Multi-morbidity |
-| **M6** | SOTA Submission Generation | `[x]` | `run.py` & `submissions/` | `submission_sota_m6_6.csv` (109,380 rows verified, peak CV F1=0.4343) |
+| **M6** | SOTA Submission Generation | `[x]` | `run.py` & `submissions/` | `submission_sota_m6_7.csv` (109,380 rows verified, peak CV F1=0.4343) |
 | **M7** | 2-Page Scientific Report | `[ ]` | LaTeX PDF (`IEEEtran`) | Include baseline comparison table, ablation study & negative results |
 
 ---
@@ -47,6 +47,9 @@
 | M6-Super-Blend | 2026-10-23 | Super Tri-Blend (223 dims: 205 base + 8 WoE + 10 Subgroups; Ridge + Bagging + Soft-F1) | 0.8758 | 0.4335 +/- 0.0034 | 0.7233 | Sub-04 (M6 Peak) |
 | M6.5-Resampling-Blend | 2026-10-23 | Hard-Negative Bagging Tri-Blend (223 dims; weights [0.35, 0.40, 0.25]) | 0.8776 | 0.4341 +/- 0.0038 | 0.7215 | Sub-05 (M6.5 Peak) |
 | M6.6-Cascade-Screening | 2026-10-23 | Two-Stage Cascade Screening (30% Ridge triage + Specialist Ensemble on 70% cohort) | 0.8781 | 0.4338 +/- 0.0040 | 0.7204 | High Precision (36.80%) |
-| M6.6-Vascular-Tri-Blend | 2026-10-23 | 233-dim Super Tri-Blend (8 Vascular Conjunctions + 2 Demographic Anchors) | 0.8753 | **0.4343 +/- 0.0039** | 0.7248 | **Sub-06 (All-Time Peak SOTA)** |
+| M6.6-Vascular-Tri-Blend | 2026-10-23 | 233-dim Super Tri-Blend (8 Vascular Conjunctions + 2 Demographic Anchors) | 0.8753 | **0.4343 +/- 0.0039** | 0.7248 | Sub-06 (233d SOTA Peak) |
+| M6.7-Isotonic-PAVA | 2026-10-23 | Pure-NumPy Isotonic PAVA Probability Calibration (233 dims) | 0.8737 | 0.4338 +/- 0.0041 | 0.7266 | Peak Balanced Acc (72.66%) & Recall (54.80%) |
+| M6.7-Boosted-Stumps | 2026-10-23 | 4-Model Quad-Blend (+ Pure-NumPy FastHistBoostedTrees Depth=2) | 0.8751 | 0.4325 +/- 0.0028 | 0.7233 | Tree Discretization Negative Result |
+| M6.7-SOTA-Blend | 2026-10-23 | 233-dim Super Tri-Blend (Rank + PAVA options deployed to run.py) | 0.8753 | **0.4343 +/- 0.0039** | 0.7248 | **Sub-07 (All-Time Peak SOTA)** |
 
 

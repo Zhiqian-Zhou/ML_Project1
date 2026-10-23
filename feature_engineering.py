@@ -895,3 +895,251 @@ def train_soft_f1_optimizer(
         final_loss = 1.0 - f1_soft + lambda_reg * np.sum(w**2)
 
     return w, final_loss
+
+
+class IsotonicCalibrator:
+    """Non-parametric monotonic probability calibration via Pool Adjacent Violators Algorithm (PAVA)."""
+
+    def __init__(self):
+        self.knots_s = None
+        self.knots_p = None
+
+    def fit(self, scores, y):
+        """Fit a monotonically increasing step function from continuous scores to probabilities."""
+        scores = np.asarray(scores, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
+
+        order = np.argsort(scores)
+        sorted_s = scores[order]
+        sorted_y = y[order]
+
+        # Vectorized/stack PAVA
+        stack = []  # stores [block_weight, block_weighted_y]
+        for yi in sorted_y:
+            cur_w = 1.0
+            cur_wy = yi
+            while stack and (stack[-1][1] / stack[-1][0]) >= (cur_wy / cur_w):
+                prev_w, prev_wy = stack.pop()
+                cur_w += prev_w
+                cur_wy += prev_wy
+            stack.append((cur_w, cur_wy))
+
+        # Construct knot coordinates for monotonic piecewise linear interpolation
+        knots_s = []
+        knots_p = []
+        cum_idx = 0
+        for block_w, block_wy in stack:
+            n_samples = int(round(block_w))
+            block_s = np.mean(sorted_s[cum_idx : cum_idx + n_samples])
+            knots_s.append(block_s)
+            knots_p.append(block_wy / block_w)
+            cum_idx += n_samples
+
+        self.knots_s = np.array(knots_s, dtype=np.float64)
+        self.knots_p = np.array(knots_p, dtype=np.float64)
+        return self
+
+    def predict_proba(self, scores):
+        """Predict calibrated probabilities in [0, 1] via monotonic interpolation."""
+        scores = np.asarray(scores, dtype=np.float64)
+        p = np.interp(
+            scores,
+            self.knots_s,
+            self.knots_p,
+            left=self.knots_p[0],
+            right=self.knots_p[-1],
+        )
+        return np.clip(p, 0.0, 1.0)
+
+
+class FastHistBoostedTrees:
+    """Fast histogram-based gradient boosted decision trees (Depth=2) in pure NumPy."""
+
+    def __init__(
+        self,
+        n_estimators=35,
+        learning_rate=0.15,
+        l2_reg=1.0,
+        n_bins=32,
+        max_features=50,
+        w_pos=2.5,
+    ):
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.l2_reg = l2_reg
+        self.n_bins = n_bins
+        self.max_features = max_features
+        self.w_pos = w_pos
+        self.trees = []
+        self.bin_edges = []
+        self.feature_indices = None
+        self.base_score = 0.0
+
+    def fit(self, X, y):
+        N, D = X.shape
+        y01 = y.astype(np.float64)
+        sample_weights = np.where(y01 == 1.0, self.w_pos, 1.0)
+
+        # Select top features by variance
+        if self.max_features < D:
+            var = np.var(X, axis=0)
+            self.feature_indices = np.argsort(var)[-self.max_features :]
+            X_sub = X[:, self.feature_indices]
+        else:
+            self.feature_indices = np.arange(D)
+            X_sub = X
+
+        K = len(self.feature_indices)
+        self.bin_edges = []
+        X_binned = np.empty((N, K), dtype=np.uint8)
+        percentiles = np.linspace(0, 100, self.n_bins + 1)[1:-1]
+
+        for j in range(K):
+            edges = np.unique(np.percentile(X_sub[:, j], percentiles))
+            self.bin_edges.append(edges)
+            X_binned[:, j] = np.digitize(X_sub[:, j], edges).astype(np.uint8)
+
+        p_mean = np.clip(
+            np.sum(sample_weights * y01) / np.sum(sample_weights), 1e-4, 1 - 1e-4
+        )
+        self.base_score = float(np.log(p_mean / (1.0 - p_mean)))
+        F = np.full(N, self.base_score, dtype=np.float64)
+        self.trees = []
+        lam = self.l2_reg
+
+        for t in range(self.n_estimators):
+            p = 1.0 / (1.0 + np.exp(-F))
+            g = sample_weights * (p - y01)
+            h = sample_weights * np.maximum(p * (1.0 - p), 1e-6)
+
+            best_feat, best_bin, best_gain = 0, 0, -1.0
+            G_tot, H_tot = np.sum(g), np.sum(h)
+            root_score = (G_tot**2) / (H_tot + lam)
+
+            for j in range(K):
+                bj = X_binned[:, j]
+                n_b = len(self.bin_edges[j]) + 1
+                g_b = np.bincount(bj, weights=g, minlength=n_b)
+                h_b = np.bincount(bj, weights=h, minlength=n_b)
+                G_L = np.cumsum(g_b[:-1])
+                H_L = np.cumsum(h_b[:-1])
+                G_R = G_tot - G_L
+                H_R = H_tot - H_L
+                gains = 0.5 * (
+                    (G_L**2) / (H_L + lam) + (G_R**2) / (H_R + lam) - root_score
+                )
+                max_g = np.max(gains)
+                if max_g > best_gain:
+                    best_gain, best_feat, best_bin = (
+                        max_g,
+                        j,
+                        int(np.argmax(gains)),
+                    )
+
+            left_mask = X_binned[:, best_feat] <= best_bin
+            right_mask = ~left_mask
+
+            def find_child_split(mask):
+                if np.sum(mask) < 20:
+                    g_sum, h_sum = np.sum(g[mask]), np.sum(h[mask])
+                    w = -g_sum / (h_sum + lam)
+                    return None, None, w, w
+                g_m, h_m = g[mask], h[mask]
+                G_c, H_c = np.sum(g_m), np.sum(h_m)
+                score_c = (G_c**2) / (H_c + lam)
+                c_feat, c_bin, c_gain = 0, 0, -1.0
+                for j in range(K):
+                    bj = X_binned[mask, j]
+                    n_b = len(self.bin_edges[j]) + 1
+                    g_b = np.bincount(bj, weights=g_m, minlength=n_b)
+                    h_b = np.bincount(bj, weights=h_m, minlength=n_b)
+                    G_L = np.cumsum(g_b[:-1])
+                    H_L = np.cumsum(h_b[:-1])
+                    G_R = G_c - G_L
+                    H_R = H_c - H_L
+                    gains = 0.5 * (
+                        (G_L**2) / (H_L + lam) + (G_R**2) / (H_R + lam) - score_c
+                    )
+                    max_g = np.max(gains)
+                    if max_g > c_gain:
+                        c_gain, c_feat, c_bin = (
+                            max_g,
+                            j,
+                            int(np.argmax(gains)),
+                        )
+                l_m = X_binned[mask, c_feat] <= c_bin
+                r_m = ~l_m
+                w_L = (
+                    -np.sum(g_m[l_m]) / (np.sum(h_m[l_m]) + lam)
+                    if np.sum(l_m) > 0
+                    else 0.0
+                )
+                w_R = (
+                    -np.sum(g_m[r_m]) / (np.sum(h_m[r_m]) + lam)
+                    if np.sum(r_m) > 0
+                    else 0.0
+                )
+                return c_feat, c_bin, w_L, w_R
+
+            j_L, b_L, w_LL, w_LR = find_child_split(left_mask)
+            j_R, b_R, w_RL, w_RR = find_child_split(right_mask)
+
+            update = np.zeros(N, dtype=np.float64)
+            if j_L is not None:
+                m_LL = left_mask & (X_binned[:, j_L] <= b_L)
+                m_LR = left_mask & (~(X_binned[:, j_L] <= b_L))
+                update[m_LL], update[m_LR] = w_LL, w_LR
+            else:
+                update[left_mask] = w_LL
+            if j_R is not None:
+                m_RL = right_mask & (X_binned[:, j_R] <= b_R)
+                m_RR = right_mask & (~(X_binned[:, j_R] <= b_R))
+                update[m_RL], update[m_RR] = w_RL, w_RR
+            else:
+                update[right_mask] = w_RL
+
+            F += self.learning_rate * update
+            self.trees.append(
+                {
+                    "root_feat": best_feat,
+                    "root_bin": best_bin,
+                    "j_L": j_L,
+                    "b_L": b_L,
+                    "w_LL": w_LL,
+                    "w_LR": w_LR,
+                    "j_R": j_R,
+                    "b_R": b_R,
+                    "w_RL": w_RL,
+                    "w_RR": w_RR,
+                }
+            )
+        return self
+
+    def predict_raw(self, X):
+        X_sub = X[:, self.feature_indices]
+        N, K = X_sub.shape
+        X_binned = np.empty((N, K), dtype=np.uint8)
+        for j in range(K):
+            X_binned[:, j] = np.digitize(X_sub[:, j], self.bin_edges[j]).astype(
+                np.uint8
+            )
+
+        F = np.full(N, self.base_score, dtype=np.float64)
+        for tree in self.trees:
+            update = np.zeros(N, dtype=np.float64)
+            left_mask = X_binned[:, tree["root_feat"]] <= tree["root_bin"]
+            right_mask = ~left_mask
+            if tree["j_L"] is not None:
+                m_LL = left_mask & (X_binned[:, tree["j_L"]] <= tree["b_L"])
+                m_LR = left_mask & (~(X_binned[:, tree["j_L"]] <= tree["b_L"]))
+                update[m_LL], update[m_LR] = tree["w_LL"], tree["w_LR"]
+            else:
+                update[left_mask] = tree["w_LL"]
+            if tree["j_R"] is not None:
+                m_RL = right_mask & (X_binned[:, tree["j_R"]] <= tree["b_R"])
+                m_RR = right_mask & (~(X_binned[:, tree["j_R"]] <= tree["b_R"]))
+                update[m_RL], update[m_RR] = tree["w_RL"], tree["w_RR"]
+            else:
+                update[right_mask] = tree["w_RL"]
+            F += self.learning_rate * update
+        return F

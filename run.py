@@ -1,6 +1,6 @@
 """Reproduce our best AIcrowd submission from scratch.
 
-Pipeline (Milestone 6.6 SOTA Super Tri-Blend):
+Pipeline (Milestone 6.7 SOTA Super Tri-Blend):
 1. CDC survey code sanitation & leak-free median imputation.
 2. 5 Clinically grounded synergistic cross-terms (Framingham epidemiology) + 2 quadratics.
 3. Extended Empirical Bayesian Log-Odds Encoding (WoE) across 8 key demographic/clinical features.
@@ -10,10 +10,10 @@ Pipeline (Milestone 6.6 SOTA Super Tri-Blend):
    - Model 1: Cost-Sensitive Weighted Ridge (lambda = 1e-4, w_pos = 3.0, weight = 0.35)
    - Model 2: Stratified Hard-Negative Balanced Logistic Bagging (M = 15 models, 50% hard + 50% easy negatives, weight = 0.40)
    - Model 3: Differentiable Soft-F1 Metric Alignment via Adam (max_iters = 250, lr = 0.03, weight = 0.25)
-7. Dynamic decision threshold calibration tau* on blended uniform percentile ranks.
+7. Dynamic decision threshold calibration tau* on blended percentile ranks or isotonic probabilities.
 
 Usage:
-    python run.py --data_path data/dataset --output submissions/submission_sota_m6_6.csv
+    python run.py --data_path data/dataset --output submissions/submission_sota_m6_7.csv
 """
 
 import argparse
@@ -24,7 +24,11 @@ import time
 import numpy as np
 
 from cross_validation import weighted_ridge_regression
-from feature_engineering import build_advanced_features, train_soft_f1_optimizer
+from feature_engineering import (
+    IsotonicCalibrator,
+    build_advanced_features,
+    train_soft_f1_optimizer,
+)
 from helpers import create_csv_submission
 from implementations import reg_logistic_regression, ridge_regression, sigmoid
 from metrics import best_threshold, predict_labels
@@ -76,12 +80,18 @@ def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data_path", default="data/dataset")
-    parser.add_argument("--output", default="submissions/submission_sota_m6_6.csv")
+    parser.add_argument("--output", default="submissions/submission_sota_m6_7.csv")
     parser.add_argument(
         "--model",
         choices=["super_blend", "weighted_ridge", "logistic"],
         default="super_blend",
-        help="Model architecture: 'super_blend' (default best M6.6), 'weighted_ridge', or 'logistic'.",
+        help="Model architecture: 'super_blend' (default best M6.7), 'weighted_ridge', or 'logistic'.",
+    )
+    parser.add_argument(
+        "--calibration",
+        choices=["rank", "isotonic"],
+        default="rank",
+        help="Calibration method: 'rank' (default uniform rank order) or 'isotonic' (PAVA calibration).",
     )
     return parser.parse_args()
 
@@ -217,16 +227,37 @@ def main():
         s3_te = sigmoid(tx_test @ w_soft)
         print(f"        M3 finished in {time.time() - t0:.2f}s")
 
-        # Percentile Rank-Order Normalization
-        print("Normalizing sub-model scores to uniform percentile ranks...")
-        r1_tr, r1_te = rank_normalize(s1_tr), rank_normalize(s1_te)
-        r2_tr, r2_te = rank_normalize(s2_tr), rank_normalize(s2_te)
-        r3_tr, r3_te = rank_normalize(s3_tr), rank_normalize(s3_te)
+        if args.calibration == "isotonic":
+            print("Calibrating sub-model predictions via Pure-NumPy Isotonic PAVA...")
+            y_train_01 = (y_train == 1).astype(float)
+            cal1 = IsotonicCalibrator().fit(s1_tr, y_train_01)
+            cal2 = IsotonicCalibrator().fit(s2_tr, y_train_01)
+            cal3 = IsotonicCalibrator().fit(s3_tr, y_train_01)
 
-        blend_tr = w1 * r1_tr + w2 * r2_tr + w3 * r3_tr
-        blend_te = w1 * r1_te + w2 * r2_te + w3 * r3_te
+            p1_tr, p1_te = cal1.predict_proba(s1_tr), cal1.predict_proba(s1_te)
+            p2_tr, p2_te = cal2.predict_proba(s2_tr), cal2.predict_proba(s2_te)
+            p3_tr, p3_te = cal3.predict_proba(s3_tr), cal3.predict_proba(s3_te)
 
-        tau, train_f1 = best_threshold(y_train, blend_tr, np.linspace(0.65, 0.95, 61))
+            blend_tr = w1 * p1_tr + w2 * p2_tr + w3 * p3_tr
+            blend_te = w1 * p1_te + w2 * p2_te + w3 * p3_te
+
+            tau, train_f1 = best_threshold(
+                y_train, blend_tr, np.linspace(0.10, 0.50, 81)
+            )
+        else:
+            # Percentile Rank-Order Normalization
+            print("Normalizing sub-model scores to uniform percentile ranks...")
+            r1_tr, r1_te = rank_normalize(s1_tr), rank_normalize(s1_te)
+            r2_tr, r2_te = rank_normalize(s2_tr), rank_normalize(s2_te)
+            r3_tr, r3_te = rank_normalize(s3_tr), rank_normalize(s3_te)
+
+            blend_tr = w1 * r1_tr + w2 * r2_tr + w3 * r3_tr
+            blend_te = w1 * r1_te + w2 * r2_te + w3 * r3_te
+
+            tau, train_f1 = best_threshold(
+                y_train, blend_tr, np.linspace(0.65, 0.95, 61)
+            )
+
         print(
             f"Ensemble calibrated decision threshold: tau*={tau:.4f} (Train F1={train_f1:.4f}, "
             f"all models trained in {time.time() - t_train:.2f}s)"
