@@ -11,7 +11,8 @@ Log every official AIcrowd submission here so the entire team can trace which co
 |---|---|---|---|:---:|:---:|:---:|---|
 | 2026-10-22 | Sub-01 (`submission_baseline_logistic.csv`) | `3d33eb3` | Regularized Logistic ($\lambda=10^{-4}, \gamma=0.1, \tau^*=0.218$) | 0.4277 | - | - | First official baseline submission (198 dims) |
 | 2026-10-22 | Sub-02 (`submission_feature_engineered.csv`) | `zhihao` | Feature-Engineered Logistic ($\lambda=10^{-4}, \gamma=0.15, \tau^*=0.210$) | 0.4311 | - | - | 333 dims: MNAR indicators + Nominal OHE + 5 Clinical interactions |
-| 2026-10-23 | Sub-03 (`submission_sota.csv`) | `zhihao` | **SOTA Heterogeneous Rank Blend** (0.45 Ridge + 0.35 Logistic + 0.20 Bagging + WoE Log-Odds) | **0.4320** | - | - | **New SOTA (109,380 rows)**; 209 dims; leak-free WoE priors & percentile rank blending |
+| 2026-10-23 | Sub-03 (`submission_sota.csv`) | `5aff7db` | SOTA Heterogeneous Rank Blend (0.45 Ridge + 0.35 Logistic + 0.20 Bagging + WoE Log-Odds) | 0.4320 | - | - | Milestone 5 Peak; 209 dims; leak-free WoE priors & percentile rank blending |
+| 2026-10-23 | Sub-04 (`submission_super_blend.csv`) | `zhihao` | **Milestone 6 Super Tri-Blend** (0.35 Ridge + 0.35 Balanced Logistic Bagging + 0.30 Soft-F1) | **0.4335** | - | - | **New Leaderboard SOTA (109,380 rows)**; 223 dims; clinical subgroup bias corrections + metric alignment |
 
 ---
 
@@ -34,13 +35,42 @@ Evaluated strictly via 5-Fold Stratified Cross-Validation (seed=42) on the strea
 | Hypothesis / Innovation | Architecture & Mechanism | Total Dims ($D$) | Val Accuracy | Val Precision | Val Recall | Balanced Acc | Val F1 (+1) | Calibrated $\tau^*$ | 5-Fold Time | Outcome |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **Hypothesis A** | **Empirical Bayesian Log-Odds (WoE)**<br>Laplace smoothing ($\alpha=20$) on `_AGEG5YR`, `GENHLTH`, `_SMOKER3`, `INCOME2` + Weighted Ridge ($w_{pos}=3.0$) | 209 | $87.56\%$ | $0.3618$ | $53.45\%$ | $72.16\%$ | $0.4315 \pm 0.0032$ | $-0.1400$ | **9.7s** | **Validated (+0.0006 over Ridge)** |
-| **Hypothesis B** | **Heterogeneous Multi-Model Rank Blend + WoE**<br>$0.45 \cdot S_{\text{Ridge}} + 0.35 \cdot S_{\text{Log}} + 0.20 \cdot S_{\text{Bagging}}$ via uniform percentile rank normalization | 209 | $87.49\%$ | $0.3607$ | $\mathbf{53.86\%}$ | $\mathbf{72.30\%}$ | $\mathbf{0.4320 \pm 0.0033}$ | $+0.8670$ | 55.4s | **New Peak SOTA (+0.0009 over Sub-02)** |
+| **Hypothesis B** | **Heterogeneous Multi-Model Rank Blend + WoE**<br>$0.45 \cdot S_{\text{Ridge}} + 0.35 \cdot S_{\text{Log}} + 0.20 \cdot S_{\text{Bagging}}$ via uniform percentile rank normalization | 209 | $87.49\%$ | $0.3607$ | $\mathbf{53.86\%}$ | $\mathbf{72.30\%}$ | $\mathbf{0.4320 \pm 0.0033}$ | $+0.8670$ | 55.4s | **Peak M5 (+0.0009 over Sub-02)** |
 | **Hypothesis C** | **Pure-NumPy 2-Layer Neural Network (MLP)**<br>$D=205 \to H=64$ (ReLU) $\to 1$ (Sigmoid), Weighted BCE ($w_{pos}=2.5$), Adam ($\eta=0.003$) | 205 | $\mathbf{87.78\%}$ | $\mathbf{0.3646}$ | $51.61\%$ | $71.45\%$ | $0.4272 \pm 0.0020$ | $+0.4300$ | 29.0s | **Underperformed (Overfitting: Train F1=0.4644)** |
 | **Hypothesis D** | **Clinical Multi-morbidity Stacking Score**<br>Composite chronic risk index (0 to 7) combining BP, Chol, Diabetes, Stroke, Smoke, Kidney, COPD + Weighted Ridge | 206 | $87.57\%$ | $0.3617$ | $53.38\%$ | $72.13\%$ | $0.4312 \pm 0.0032$ | $-0.1400$ | **8.1s** | **Competitive (+0.0003 over Ridge base)** |
 
 ---
 
-## 4. Cost-Sensitive Class-Weighted Learning Benchmark (Streamlined 205 Dims)
+## 4. Table 4: Milestone 6 - Super Tri-Blend & Clinical Subgroup Innovations Ablation
+Evaluated via pure-NumPy Stratified 5-Fold Cross-Validation (`seed=42`) on the complete dataset with zero data leakage.
+
+### Architecture Overview (223 Dims):
+1. **Base Streamlined Features (205 dims)**: 197 cleaned features, median-imputed + 5 clinical Framingham interactions + 2 quadratics + bias.
+2. **Extended Empirical Bayesian Log-Odds (8 dims)**: Laplace-smoothed ($\alpha=20.0$) target encoding on `_AGEG5YR`, `GENHLTH`, `_SMOKER3`, `INCOME2`, `EMPLOY1`, `_EDUCAG`, `DIFFWALK`, `DIABETE3`.
+3. **Clinical Subgroup Bias-Correcting Terms (10 dims)**: Interaction terms linearizing risk and addressing known classification errors:
+   - `RESILIENT_ELDERLY` (`Age >= 10 & GENHLTH <= 2`) and `FRAIL_ELDERLY` (`Age >= 10 & GENHLTH >= 4`).
+   - `YOUNG_HIGH_RISK` (`Age <= 6 & (Stroke | (Smoking & HBP))`).
+   - `AGE_x_GENHLTH`, `LOG_PHYSHLTH`, `LOG_MENTHLTH`, `MALE_x_AGE`, `DIFF_x_AGE`, `STROKE_x_AGE`, `METABOLIC_TRIO`.
+
+### Stratified 5-Fold Cross-Validation Performance:
+
+| Model / Ensemble Component | Weights | Val Accuracy | Val Precision | Val Recall | Balanced Acc | Val F1 (+1) | Calibrated $\tau^*$ |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Model 1: Cost-Sensitive Weighted Ridge** | $0.35$ | $87.58\%$ | $0.3621$ | $53.58\%$ | $72.22\%$ | $0.4324 \pm 0.0036$ | $-0.1400$ |
+| **Model 2: Balanced Logistic Bagging** ($M=15$) | $0.35$ | $87.55\%$ | $0.3614$ | $53.30\%$ | $72.08\%$ | $0.4309 \pm 0.0039$ | $+0.4850$ |
+| **Model 3: Differentiable Soft-F1 Optimizer** | $0.30$ | $87.62\%$ | $0.3635$ | $52.05\%$ | $71.55\%$ | $0.4273 \pm 0.0031$ | $+0.4600$ |
+| **Super Tri-Blend Ensemble (M6)** | **[0.35, 0.35, 0.30]** | $\mathbf{87.58 \pm 0.09\%}$ | $\mathbf{0.3630 \pm 0.0020}$ | $\mathbf{53.81 \pm 0.0091}$ | $\mathbf{72.33 \pm 0.0038}$ | $\mathbf{0.4335 \pm 0.0034}$ | $\mathbf{+0.8670}$ |
+
+### Fold-by-Fold Breakdown:
+- Fold 1: Val F1 = **0.4336** (Prec = 0.3659, Rec = 0.5318, BAcc = 0.7213)
+- Fold 2: Val F1 = **0.4340** (Prec = 0.3608, Rec = 0.5443, BAcc = 0.7254)
+- Fold 3: Val F1 = **0.4272** (Prec = 0.3609, Rec = 0.5232, BAcc = 0.7167)
+- Fold 4: Val F1 = **0.4373** (Prec = 0.3645, Rec = 0.5465, BAcc = 0.7271)
+- Fold 5: Val F1 = **0.4355** (Prec = 0.3629, Rec = 0.5444, BAcc = 0.7259)
+
+---
+
+## 5. Cost-Sensitive Class-Weighted Learning Benchmark (Streamlined 205 Dims)
 
 Because the dataset exhibits severe positive class imbalance (8.83% positive), unweighted loss gradients are heavily dominated by the majority negative class. We implemented pure-NumPy sample-weighted Ridge Regression via the exact closed-form normal equations:
 $$\mathbf{w}^* = (\mathbf{X}^T \mathbf{W} \mathbf{X} + 2N\lambda \mathbf{I})^{-1} \mathbf{X}^T \mathbf{W} \mathbf{y}$$
@@ -58,13 +88,9 @@ where sample weight $w_i = w_{pos}$ for positive cases ($y_i = +1$), and $1.0$ f
 | **Weighted Ridge** | $5.0$ | $87.52\%$ | $0.3608$ | $53.41\%$ | $72.12\%$ | $0.4305 \pm 0.0031$ | $+0.0720$ | **8.73s** |
 | **Regularized Logistic** | $1.0$ | $87.41\%$ | $0.3586$ | $53.92\%$ | $72.29\%$ | $0.4307 \pm 0.0028$ | $+0.2080$ | 52.54s |
 
-### Key Insights:
-1. **Cost-Sensitivity Matches Iterative Gradient Descent**: Weighted Ridge Regression ($w_{pos}=3.0$) matches Regularized Logistic Regression in F1 ($0.4309$ vs $0.4307$), but runs in **7.53 seconds (7.0x faster)**.
-2. **Threshold Centering**: Increasing $w_{pos}$ from $1.0 \to 3.0 \to 5.0$ naturally shifts raw decision scores toward zero ($\tau^*$ shifts from $-0.556 \to -0.140 \to +0.072$), reducing score skewness caused by extreme class imbalance.
-
 ---
 
-## 5. Negative Results & Pruning Rationale (What Didn't Work)
+## 6. Negative Results & Pruning Rationale (What Didn't Work)
 
 To ensure scientific rigor and avoid confirmation bias, we explicitly document empirical negative results:
 
@@ -91,7 +117,7 @@ To ensure scientific rigor and avoid confirmation bias, we explicitly document e
 
 ---
 
-## 6. Local 5-Fold Stratified CV Baseline Benchmark
+## 7. Local 5-Fold Stratified CV Baseline Benchmark
 Evaluated across baselines to establish the lower bound performance on sanitized features:
 
 | Exp ID | Model Architecture | Threshold $\tau$ | Val Accuracy | Val Precision | Val Recall | Balanced Acc | Val F1 (+1) | Notes / Improvements |
@@ -104,7 +130,7 @@ Evaluated across baselines to establish the lower bound performance on sanitized
 
 ---
 
-## 7. Critical Findings & Pitfalls Avoided (For Teammates)
+## 8. Critical Findings & Pitfalls Avoided (For Teammates)
 
 Please review these findings before writing modeling or preprocessing code:
 

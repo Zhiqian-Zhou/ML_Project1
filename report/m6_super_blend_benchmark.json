@@ -1,0 +1,24 @@
+{
+  "model": "Milestone 6 Super Tri-Blend (223 Dims)",
+  "dims": 223,
+  "blend_weights": [
+    0.35,
+    0.35,
+    0.3
+  ],
+  "accuracy_mean": 0.8758407362823227,
+  "accuracy_std": 0.000877581713881246,
+  "precision_mean": 0.3630207105235545,
+  "precision_std": 0.001998575380909105,
+  "recall_mean": 0.5380500431406385,
+  "recall_std": 0.009051888799243004,
+  "balanced_accuracy_mean": 0.7233036684482441,
+  "balanced_accuracy_std": 0.0038243843683681772,
+  "f1_mean": 0.43350561860346043,
+  "f1_std": 0.003435856513851514,
+  "threshold_mean": 0.867,
+  "m1_weighted_ridge_f1": 0.4323620398699616,
+  "m2_balanced_logistic_f1": 0.4309475697231567,
+  "m3_soft_f1_f1": 0.42726205451869725,
+  "total_time_seconds": 206.68615198135376
+}

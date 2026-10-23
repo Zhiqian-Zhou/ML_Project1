@@ -1,0 +1,26 @@
+{
+  "Soft_F1_Standalone": {
+    "mean_f1": 0.428857656144225,
+    "std_f1": 0.003088853294983558,
+    "mean_precision": 0.35661063691414596,
+    "mean_recall": 0.5384987057808456
+  },
+  "Rich_Weighted_Ridge": {
+    "mean_f1": 0.4309106430580883,
+    "std_f1": 0.004105439723260336,
+    "mean_precision": 0.3710736119477352,
+    "mean_recall": 0.5140638481449524
+  },
+  "Balanced_Logistic_Bagging": {
+    "mean_f1": 0.43172483295278796,
+    "std_f1": 0.003971484230583757,
+    "mean_precision": 0.3642052336950263,
+    "mean_recall": 0.5301121656600517
+  },
+  "Super_Tri_Blend": {
+    "mean_f1": 0.4325179577502728,
+    "std_f1": 0.003958944968487936,
+    "mean_precision": 0.35808254851788507,
+    "mean_recall": 0.5469542709232097
+  }
+}

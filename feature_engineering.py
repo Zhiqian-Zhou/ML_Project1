@@ -459,3 +459,335 @@ def engineer_features_fold(
     if x_te is not None:
         return tx_tr, tx_te, assembled_names
     return tx_tr, assembled_names
+
+
+def compute_woe_features(
+    x_tr,
+    x_te=None,
+    feature_names=None,
+    y_tr=None,
+    alpha=20.0,
+    woe_cols=(
+        "_AGEG5YR",
+        "GENHLTH",
+        "_SMOKER3",
+        "INCOME2",
+        "EMPLOY1",
+        "_EDUCAG",
+        "DIFFWALK",
+        "DIABETE3",
+    ),
+):
+    """Compute empirical Bayesian Laplace-smoothed Log-Odds (WoE) on training set and apply out-of-fold.
+
+    WoE formula:
+        WoE(c) = ln((N_pos(c) + alpha * P(y=1)) / (N_neg(c) + alpha * P(y=-1))) - ln(P(y=1) / P(y=-1))
+    """
+    if feature_names is None:
+        raise ValueError("feature_names is required to identify WoE columns.")
+    if y_tr is None:
+        raise ValueError(
+            "y_tr is required to compute empirical Bayesian WoE encodings."
+        )
+
+    pos_mask = y_tr == 1
+    neg_mask = (y_tr == -1) if np.any(y_tr == -1) else (y_tr == 0)
+    pos_p = np.mean(pos_mask)
+    neg_p = 1.0 - pos_p
+    prior_lo = np.log(pos_p / (neg_p + 1e-12))
+
+    woe_tr_list, woe_te_list = [], []
+    active_woe_names = []
+    for col_name in woe_cols:
+        if col_name not in feature_names:
+            continue
+        idx = feature_names.index(col_name)
+        col_tr = x_tr[:, idx]
+        col_te = x_te[:, idx] if x_te is not None else None
+
+        cats = np.unique(col_tr[~np.isnan(col_tr)])
+        mapping = {}
+        for c in cats:
+            m_c = col_tr == c
+            n_pos = np.sum(pos_mask[m_c])
+            n_neg = np.sum(neg_mask[m_c])
+            mapping[c] = (
+                np.log((n_pos + alpha * pos_p) / (n_neg + alpha * neg_p + 1e-12))
+                - prior_lo
+            )
+
+        w_col_tr = np.array(
+            [0.0 if np.isnan(v) else mapping.get(v, 0.0) for v in col_tr],
+            dtype=np.float32,
+        )
+        woe_tr_list.append(w_col_tr)
+        if col_te is not None:
+            w_col_te = np.array(
+                [0.0 if np.isnan(v) else mapping.get(v, 0.0) for v in col_te],
+                dtype=np.float32,
+            )
+            woe_te_list.append(w_col_te)
+        active_woe_names.append(f"WOE_{col_name}")
+
+    w_mat_tr = np.column_stack(woe_tr_list)
+    w_mat_te = np.column_stack(woe_te_list) if x_te is not None else None
+
+    # Standardize WoE columns using training statistics
+    w_mean = np.mean(w_mat_tr, axis=0)
+    w_std = np.std(w_mat_tr, axis=0)
+    w_std[w_std == 0.0] = 1.0
+
+    w_mat_tr = (w_mat_tr - w_mean) / w_std
+    if w_mat_te is not None:
+        w_mat_te = (w_mat_te - w_mean) / w_std
+
+    if x_te is not None:
+        return w_mat_tr, w_mat_te, active_woe_names
+    return w_mat_tr, active_woe_names
+
+
+def build_clinical_subgroup_terms(x_tr_imp, x_te_imp=None, feature_names=None):
+    """Construct 10 clinical subgroup bias-correcting and risk-linearizing terms.
+
+    1. RESILIENT_ELDERLY: (Age >= 10.0) * (GENHLTH <= 2.0)
+    2. FRAIL_ELDERLY: (Age >= 10.0) * (GENHLTH >= 4.0)
+    3. YOUNG_HIGH_RISK: (Age <= 6.0) * (Stroke == 1.0 | (Smoker in [1,2] & HBP == 2.0))
+    4. AGE_x_GENHLTH: Age * GENHLTH
+    5. LOG_PHYSHLTH: np.log1p(PHYSHLTH)
+    6. LOG_MENTHLTH: np.log1p(MENTHLTH)
+    7. MALE_x_AGE: (SEX == 1.0) * Age
+    8. DIFF_x_AGE: (DIFFWALK == 1.0) * Age
+    9. STROKE_x_AGE: (CVDSTRK3 == 1.0) * Age
+    10. METABOLIC_TRIO: (DIABETE3 == 1.0) * (_RFHYPE5 == 2.0) * (_RFCHOL == 2.0)
+    """
+    if feature_names is None:
+        raise ValueError("feature_names is required.")
+
+    name_to_idx = {name: i for i, name in enumerate(feature_names)}
+
+    def extract_subgroup_matrix(arr):
+        age = arr[:, name_to_idx["_AGEG5YR"]]
+        genhlth = arr[:, name_to_idx["GENHLTH"]]
+        stroke = arr[:, name_to_idx["CVDSTRK3"]]
+        smoker = arr[:, name_to_idx["_SMOKER3"]]
+        hbp = arr[:, name_to_idx["_RFHYPE5"]]
+        chol = arr[:, name_to_idx["_RFCHOL"]]
+        diabete = arr[:, name_to_idx["DIABETE3"]]
+        physhlth = arr[:, name_to_idx["PHYSHLTH"]]
+        menthlth = arr[:, name_to_idx["MENTHLTH"]]
+        sex = arr[:, name_to_idx["SEX"]]
+        diffwalk = arr[:, name_to_idx["DIFFWALK"]]
+
+        # 1. RESILIENT_ELDERLY
+        resilient_elderly = ((age >= 10.0) & (genhlth <= 2.0)).astype(np.float32)
+        # 2. FRAIL_ELDERLY
+        frail_elderly = ((age >= 10.0) & (genhlth >= 4.0)).astype(np.float32)
+        # 3. YOUNG_HIGH_RISK
+        stroke_yes = stroke == 1.0
+        smoke_curr = (smoker == 1.0) | (smoker == 2.0)
+        hbp_yes = hbp == 2.0
+        young_high_risk = ((age <= 6.0) & (stroke_yes | (smoke_curr & hbp_yes))).astype(
+            np.float32
+        )
+        # 4. AGE_x_GENHLTH
+        age_x_genhlth = (age * genhlth).astype(np.float32)
+        # 5. LOG_PHYSHLTH
+        log_physhlth = np.log1p(np.maximum(0.0, physhlth)).astype(np.float32)
+        # 6. LOG_MENTHLTH
+        log_menthlth = np.log1p(np.maximum(0.0, menthlth)).astype(np.float32)
+        # 7. MALE_x_AGE
+        male_x_age = ((sex == 1.0).astype(np.float32) * age).astype(np.float32)
+        # 8. DIFF_x_AGE
+        diff_x_age = ((diffwalk == 1.0).astype(np.float32) * age).astype(np.float32)
+        # 9. STROKE_x_AGE
+        stroke_x_age = ((stroke == 1.0).astype(np.float32) * age).astype(np.float32)
+        # 10. METABOLIC_TRIO
+        metabolic_trio = ((diabete == 1.0) & (hbp == 2.0) & (chol == 2.0)).astype(
+            np.float32
+        )
+
+        return np.column_stack(
+            [
+                resilient_elderly,
+                frail_elderly,
+                young_high_risk,
+                age_x_genhlth,
+                log_physhlth,
+                log_menthlth,
+                male_x_age,
+                diff_x_age,
+                stroke_x_age,
+                metabolic_trio,
+            ]
+        )
+
+    sub_tr = extract_subgroup_matrix(x_tr_imp)
+    sub_te = extract_subgroup_matrix(x_te_imp) if x_te_imp is not None else None
+
+    sub_names = [
+        "RESILIENT_ELDERLY",
+        "FRAIL_ELDERLY",
+        "YOUNG_HIGH_RISK",
+        "AGE_x_GENHLTH",
+        "LOG_PHYSHLTH",
+        "LOG_MENTHLTH",
+        "MALE_x_AGE",
+        "DIFF_x_AGE",
+        "STROKE_x_AGE",
+        "METABOLIC_TRIO",
+    ]
+
+    # Standardize subgroup terms using training statistics
+    sub_mean = np.mean(sub_tr, axis=0)
+    sub_std = np.std(sub_tr, axis=0)
+    sub_std[sub_std == 0.0] = 1.0
+
+    sub_tr = (sub_tr - sub_mean) / sub_std
+    if sub_te is not None:
+        sub_te = (sub_te - sub_mean) / sub_std
+
+    if x_te_imp is not None:
+        return sub_tr, sub_te, sub_names
+    return sub_tr, sub_names
+
+
+def build_advanced_features(x_tr, x_te=None, feature_names=None, y_tr=None, alpha=20.0):
+    """Construct the rich, clinical 223-dimensional design matrix.
+
+    Components:
+    1. Base Streamlined Features (205 dims): 197 base + 5 cross-terms + 2 quad + 1 bias.
+    2. Extended Empirical Bayesian WoE (8 dims): target-encoded categorical features.
+    3. Clinical Subgroup Bias-Correcting Terms (10 dims): interaction terms for elderly/young subgroups.
+
+    Total Dimensions: 205 + 8 + 10 = 223 dims.
+    """
+    if feature_names is None:
+        raise ValueError("feature_names is required.")
+    if y_tr is None:
+        raise ValueError(
+            "y_tr is required to compute empirical Bayesian WoE encodings."
+        )
+
+    # 1. Base streamlined features (205 dims)
+    if x_te is not None:
+        base_tr, base_te, base_names = build_streamlined_features(
+            x_tr,
+            x_te,
+            feature_names=feature_names,
+            add_bias=True,
+            standardize_features=True,
+        )
+    else:
+        base_tr, base_names = build_streamlined_features(
+            x_tr,
+            feature_names=feature_names,
+            add_bias=True,
+            standardize_features=True,
+        )
+        base_te = None
+
+    # 2. Extended empirical Bayesian WoE (8 dims)
+    if x_te is not None:
+        woe_tr, woe_te, woe_names = compute_woe_features(
+            x_tr, x_te, feature_names=feature_names, y_tr=y_tr, alpha=alpha
+        )
+    else:
+        woe_tr, woe_names = compute_woe_features(
+            x_tr, feature_names=feature_names, y_tr=y_tr, alpha=alpha
+        )
+        woe_te = None
+
+    # 3. Clinical subgroup bias-correcting terms (10 dims)
+    med = np.nanmedian(x_tr, axis=0)
+    med = np.nan_to_num(med, nan=0.0)
+
+    x_tr_imp = x_tr.copy()
+    nan_mask_tr = np.isnan(x_tr_imp)
+    for j in range(x_tr_imp.shape[1]):
+        if np.any(nan_mask_tr[:, j]):
+            x_tr_imp[nan_mask_tr[:, j], j] = med[j]
+
+    if x_te is not None:
+        x_te_imp = x_te.copy()
+        nan_mask_te = np.isnan(x_te_imp)
+        for j in range(x_te_imp.shape[1]):
+            if np.any(nan_mask_te[:, j]):
+                x_te_imp[nan_mask_te[:, j], j] = med[j]
+    else:
+        x_te_imp = None
+
+    if x_te is not None:
+        sub_tr, sub_te, sub_names = build_clinical_subgroup_terms(
+            x_tr_imp, x_te_imp, feature_names=feature_names
+        )
+    else:
+        sub_tr, sub_names = build_clinical_subgroup_terms(
+            x_tr_imp, feature_names=feature_names
+        )
+        sub_te = None
+
+    # Assemble 223 dimensions
+    tx_tr = np.column_stack([base_tr, woe_tr, sub_tr])
+    out_names = list(base_names) + list(woe_names) + list(sub_names)
+
+    if x_te is not None:
+        tx_te = np.column_stack([base_te, woe_te, sub_te])
+        return tx_tr, tx_te, out_names
+    return tx_tr, out_names
+
+
+def train_soft_f1_optimizer(
+    tx_tr, y01, max_iters=250, lr=0.03, lambda_reg=1e-5, initial_w=None
+):
+    """Optimize differentiable Soft-F1 metric via Adam.
+
+    Loss function:
+        L(w) = 1 - (2 * sum(y_i * s_i)) / (sum(s_i) + sum(y_i) + eps) + lambda * ||w||^2
+    where s_i = sigmoid(tx_i @ w).
+
+    Gradient:
+        dL/dw = - sum_i ((2 * y_i - F1_soft) / Denom) * s_i * (1 - s_i) * tx_i + 2 * lambda * w
+
+    Args:
+        tx_tr (np.ndarray): Design matrix of shape (N, D).
+        y01 (np.ndarray): Binary labels in {0, 1} or {-1, 1} of shape (N,).
+        max_iters (int): Maximum optimization steps.
+        lr (float): Adam learning rate (step size).
+        lambda_reg (float): L2 regularization parameter.
+        initial_w (np.ndarray, optional): Starting weight vector of shape (D,).
+
+    Returns:
+        tuple: (w, loss) final weights and soft-F1 loss.
+    """
+    y = (y01 == 1).astype(float) if np.any(y01 == -1) else y01.astype(float)
+    N, D = tx_tr.shape
+    w = np.zeros(D) if initial_w is None else initial_w.copy().astype(float)
+
+    m = np.zeros(D)
+    v = np.zeros(D)
+    beta1, beta2 = 0.9, 0.999
+    eps_adam = 1e-8
+    eps_denom = 1e-7
+    sum_y = np.sum(y)
+
+    final_loss = 0.0
+    for it in range(1, max_iters + 1):
+        z = np.clip(tx_tr @ w, -250.0, 250.0)
+        s = 1.0 / (1.0 + np.exp(-z))
+
+        num = 2.0 * np.dot(y, s)
+        denom = np.sum(s) + sum_y + eps_denom
+        f1_soft = num / denom
+
+        c = ((2.0 * y - f1_soft) / denom) * s * (1.0 - s)
+        grad = -tx_tr.T @ c + 2.0 * lambda_reg * w
+
+        m = beta1 * m + (1.0 - beta1) * grad
+        v = beta2 * v + (1.0 - beta2) * (grad**2)
+        m_hat = m / (1.0 - beta1**it)
+        v_hat = v / (1.0 - beta2**it)
+        w -= lr * m_hat / (np.sqrt(v_hat) + eps_adam)
+
+        final_loss = 1.0 - f1_soft + lambda_reg * np.sum(w**2)
+
+    return w, final_loss

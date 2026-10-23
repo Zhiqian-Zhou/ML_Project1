@@ -1,18 +1,18 @@
 """Reproduce our best AIcrowd submission from scratch.
 
-Pipeline (SOTA Ensemble):
+Pipeline (Milestone 6 Super Tri-Blend):
 1. CDC survey code sanitation & leak-free median imputation.
-2. 5 Clinically grounded synergistic cross-terms (Framingham epidemiology).
-3. 2 Quadratic physiological risk curves (_BMI5^2, _AGEG5YR^2).
-4. Empirical Bayesian Log-Odds Encoding (WoE) for exponential risk factors.
-5. Multi-Model Heterogeneous Rank-Order Ensemble Blend:
-   - Model 1: Cost-Sensitive Weighted Ridge Regression (w_pos = 3.0, weight = 0.45)
-   - Model 2: Regularized Logistic Regression (lambda = 1e-4, weight = 0.35)
-   - Model 3: Balanced Undersampling Bagging Ensemble (M = 10 bags, weight = 0.20)
-6. Dynamic decision threshold calibration tau* on blended percentile ranks.
+2. 5 Clinically grounded synergistic cross-terms (Framingham epidemiology) + 2 quadratics.
+3. Extended Empirical Bayesian Log-Odds Encoding (WoE) across 8 key demographic/clinical features.
+4. 10 Clinical subgroup bias-correcting and risk-linearizing terms (223 dimensions total).
+5. Super Tri-Blend of 3 heterogeneous sub-models:
+   - Model 1: Cost-Sensitive Weighted Ridge (lambda = 1e-4, w_pos = 3.0, weight = 0.35)
+   - Model 2: Balanced Logistic Bagging (M = 15 models, 1:1 subsamples, max_iters = 200, gamma = 0.3, weight = 0.35)
+   - Model 3: Differentiable Soft-F1 Metric Alignment via Adam (max_iters = 250, lr = 0.03, weight = 0.30)
+6. Dynamic decision threshold calibration tau* on blended uniform percentile ranks.
 
 Usage:
-    python run.py --data_path data/dataset --output submissions/submission_sota.csv
+    python run.py --data_path data/dataset --output submissions/submission_super_blend.csv
 """
 
 import argparse
@@ -23,7 +23,7 @@ import time
 import numpy as np
 
 from cross_validation import weighted_ridge_regression
-from feature_engineering import build_streamlined_features
+from feature_engineering import build_advanced_features, train_soft_f1_optimizer
 from helpers import create_csv_submission
 from implementations import reg_logistic_regression, ridge_regression, sigmoid
 from metrics import best_threshold, predict_labels
@@ -34,10 +34,12 @@ SEED = 42
 CONFIG = {
     "lambda_": 1e-4,
     "w_pos": 3.0,
-    "gamma": 0.15,
-    "max_iters": 350,
-    "n_bags": 10,
-    "blend_weights": (0.45, 0.35, 0.20),
+    "gamma_logistic": 0.30,
+    "max_iters_logistic": 200,
+    "n_bags": 15,
+    "lr_soft_f1": 0.03,
+    "max_iters_soft_f1": 250,
+    "blend_weights": (0.35, 0.35, 0.30),
 }
 
 
@@ -46,52 +48,16 @@ def rank_normalize(scores):
     return np.argsort(np.argsort(scores)) / float(len(scores))
 
 
-def compute_woe_features(x_tr, x_te, feature_names, alpha=20.0, y_tr=None):
-    """Compute empirical Bayesian Laplace-smoothed Log-Odds (WoE) on training set and apply to test."""
-    woe_cols = ["_AGEG5YR", "GENHLTH", "_SMOKER3", "INCOME2"]
-    woe_indices = [feature_names.index(c) for c in woe_cols if c in feature_names]
-
-    pos_p = np.mean(y_tr == 1)
-    neg_p = 1.0 - pos_p
-    prior_lo = np.log(pos_p / neg_p)
-
-    woe_tr_list, woe_te_list = [], []
-    for idx in woe_indices:
-        col_tr = x_tr[:, idx]
-        col_te = x_te[:, idx]
-        cats = np.unique(col_tr[~np.isnan(col_tr)])
-        mapping = {}
-        for c in cats:
-            m_c = col_tr == c
-            n_pos = np.sum(y_tr[m_c] == 1)
-            n_neg = np.sum(y_tr[m_c] == -1)
-            mapping[c] = (
-                np.log((n_pos + alpha * pos_p) / (n_neg + alpha * neg_p)) - prior_lo
-            )
-
-        woe_tr_list.append(np.array([mapping.get(v, 0.0) for v in col_tr]))
-        woe_te_list.append(np.array([mapping.get(v, 0.0) for v in col_te]))
-
-    w_mat_tr = np.column_stack(woe_tr_list)
-    w_mat_te = np.column_stack(woe_te_list)
-
-    w_mean = np.mean(w_mat_tr, axis=0)
-    w_std = np.std(w_mat_tr, axis=0)
-    w_std[w_std == 0.0] = 1.0
-
-    return (w_mat_tr - w_mean) / w_std, (w_mat_te - w_mean) / w_std
-
-
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data_path", default="data/dataset")
-    parser.add_argument("--output", default="submissions/submission_sota.csv")
+    parser.add_argument("--output", default="submissions/submission_super_blend.csv")
     parser.add_argument(
         "--model",
-        choices=["sota_ensemble", "weighted_ridge", "logistic"],
-        default="sota_ensemble",
-        help="Model architecture: 'sota_ensemble' (default best), 'weighted_ridge', or 'logistic'.",
+        choices=["super_blend", "weighted_ridge", "logistic"],
+        default="super_blend",
+        help="Model architecture: 'super_blend' (default best M6), 'weighted_ridge', or 'logistic'.",
     )
     return parser.parse_args()
 
@@ -135,29 +101,29 @@ def main():
         f"positive ratio={np.mean(y_train == 1):.4%} (loaded in {time.time() - t_load:.2f}s)"
     )
 
-    # 2. Build streamlined 205-dimensional design matrix
-    print("Building streamlined high-signal design matrix...")
-    tx_train, tx_test, _ = build_streamlined_features(x_train, x_test, feature_names)
-
-    # 3. Append empirical Bayes WoE log-odds features
-    print("Computing out-of-fold empirical Bayesian WoE log-odds features...")
-    woe_tr, woe_te = compute_woe_features(
-        x_train, x_test, feature_names, alpha=20.0, y_tr=y_train
+    # 2. Build rich, clinical 223-dimensional design matrix
+    print("Building advanced 223-dimensional clinical design matrix...")
+    t_feat = time.time()
+    tx_train, tx_test, feature_out_names = build_advanced_features(
+        x_train, x_test, feature_names=feature_names, y_tr=y_train, alpha=20.0
     )
-    tx_train = np.c_[tx_train, woe_tr]
-    tx_test = np.c_[tx_test, woe_te]
     print(
-        f"Final design matrix shape: tx_train={tx_train.shape}, tx_test={tx_test.shape}"
+        f"Design matrix constructed: tx_train={tx_train.shape}, tx_test={tx_test.shape} "
+        f"({len(feature_out_names)} features, computed in {time.time() - t_feat:.2f}s)"
     )
 
-    # 4. Model Training & Prediction
+    # 3. Model Training & Prediction
     t_train = time.time()
-    if args.model == "sota_ensemble":
+    if args.model == "super_blend":
+        w1, w2, w3 = CONFIG["blend_weights"]
         print(
-            f"Training SOTA Heterogeneous Ensemble Blend ({CONFIG['blend_weights'][0]:.2f} Ridge + "
-            f"{CONFIG['blend_weights'][1]:.2f} Logistic + {CONFIG['blend_weights'][2]:.2f} Bagging)..."
+            f"Training Milestone 6 Super Tri-Blend ({w1:.2f} Weighted Ridge + "
+            f"{w2:.2f} Balanced Logistic Bagging + {w3:.2f} Soft-F1 Optimizer)..."
         )
+
         # Model 1: Cost-Sensitive Weighted Ridge
+        print("  [1/3] Training Cost-Sensitive Weighted Ridge (w_pos=3.0)...")
+        t0 = time.time()
         w_ridge, _ = weighted_ridge_regression(
             y_train.astype(float),
             tx_train,
@@ -166,22 +132,13 @@ def main():
         )
         s1_tr = tx_train @ w_ridge
         s1_te = tx_test @ w_ridge
+        print(f"        M1 finished in {time.time() - t0:.2f}s")
 
-        # Model 2: Regularized Logistic Regression
-        y01 = (y_train + 1) / 2
-        w0 = np.zeros(tx_train.shape[1])
-        w_log, _ = reg_logistic_regression(
-            y01,
-            tx_train,
-            CONFIG["lambda_"],
-            initial_w=w0,
-            max_iters=CONFIG["max_iters"],
-            gamma=CONFIG["gamma"],
+        # Model 2: Balanced Logistic Bagging (M = 15 models on 1:1 subsamples)
+        print(
+            f"  [2/3] Training Balanced Logistic Bagging (M={CONFIG['n_bags']} bags, max_iters={CONFIG['max_iters_logistic']})..."
         )
-        s2_tr = sigmoid(tx_train @ w_log)
-        s2_te = sigmoid(tx_test @ w_log)
-
-        # Model 3: Balanced Undersampling Bagging Ensemble
+        t0 = time.time()
         pos_idx = np.where(y_train == 1)[0]
         neg_idx = np.where(y_train == -1)[0]
         n_pos = len(pos_idx)
@@ -192,29 +149,52 @@ def main():
         for m in range(CONFIG["n_bags"]):
             sub_neg = rng.choice(neg_idx, size=n_pos, replace=False)
             sub_idx = np.concatenate([pos_idx, sub_neg])
-            w_bag, _ = ridge_regression(
-                y_train[sub_idx].astype(float),
+            y_sub_01 = (y_train[sub_idx] == 1).astype(float)
+            w0 = np.zeros(tx_train.shape[1])
+            w_bag, _ = reg_logistic_regression(
+                y_sub_01,
                 tx_train[sub_idx],
                 lambda_=CONFIG["lambda_"],
+                initial_w=w0,
+                max_iters=CONFIG["max_iters_logistic"],
+                gamma=CONFIG["gamma_logistic"],
             )
-            bag_tr += tx_train @ w_bag
-            bag_te += tx_test @ w_bag
-        s3_tr = bag_tr / float(CONFIG["n_bags"])
-        s3_te = bag_te / float(CONFIG["n_bags"])
+            bag_tr += sigmoid(tx_train @ w_bag)
+            bag_te += sigmoid(tx_test @ w_bag)
+        s2_tr = bag_tr / float(CONFIG["n_bags"])
+        s2_te = bag_te / float(CONFIG["n_bags"])
+        print(f"        M2 finished in {time.time() - t0:.2f}s")
 
-        # Rank-Order Percentile Normalization
+        # Model 3: Differentiable Soft-F1 Metric Alignment via Adam
+        print(
+            f"  [3/3] Training Differentiable Soft-F1 Optimizer (Adam lr={CONFIG['lr_soft_f1']}, max_iters={CONFIG['max_iters_soft_f1']})..."
+        )
+        t0 = time.time()
+        y01 = (y_train == 1).astype(float)
+        w_soft, _ = train_soft_f1_optimizer(
+            tx_train,
+            y01,
+            max_iters=CONFIG["max_iters_soft_f1"],
+            lr=CONFIG["lr_soft_f1"],
+            lambda_reg=1e-5,
+        )
+        s3_tr = sigmoid(tx_train @ w_soft)
+        s3_te = sigmoid(tx_test @ w_soft)
+        print(f"        M3 finished in {time.time() - t0:.2f}s")
+
+        # Percentile Rank-Order Normalization
+        print("Normalizing sub-model scores to uniform percentile ranks...")
         r1_tr, r1_te = rank_normalize(s1_tr), rank_normalize(s1_te)
         r2_tr, r2_te = rank_normalize(s2_tr), rank_normalize(s2_te)
         r3_tr, r3_te = rank_normalize(s3_tr), rank_normalize(s3_te)
 
-        w1, w2, w3 = CONFIG["blend_weights"]
         blend_tr = w1 * r1_tr + w2 * r2_tr + w3 * r3_tr
         blend_te = w1 * r1_te + w2 * r2_te + w3 * r3_te
 
         tau, train_f1 = best_threshold(y_train, blend_tr, np.linspace(0.65, 0.95, 61))
         print(
             f"Ensemble calibrated decision threshold: tau*={tau:.4f} (Train F1={train_f1:.4f}, "
-            f"trained in {time.time() - t_train:.2f}s)"
+            f"all models trained in {time.time() - t_train:.2f}s)"
         )
         y_pred = predict_labels(blend_te, tau)
 
@@ -237,7 +217,7 @@ def main():
 
     else:
         print(
-            f"Training Regularized Logistic Regression (lambda={CONFIG['lambda_']}, gamma={CONFIG['gamma']})..."
+            f"Training Regularized Logistic Regression (lambda={CONFIG['lambda_']}, gamma={CONFIG['gamma_logistic']})..."
         )
         y01 = (y_train + 1) / 2
         w0 = np.zeros(tx_train.shape[1])
@@ -246,8 +226,8 @@ def main():
             tx_train,
             CONFIG["lambda_"],
             initial_w=w0,
-            max_iters=CONFIG["max_iters"],
-            gamma=CONFIG["gamma"],
+            max_iters=CONFIG["max_iters_logistic"],
+            gamma=CONFIG["gamma_logistic"],
         )
         probs_tr = sigmoid(tx_train @ w)
         tau, train_f1 = best_threshold(y_train, probs_tr, np.linspace(0.05, 0.45, 81))
@@ -256,7 +236,7 @@ def main():
         )
         y_pred = predict_labels(sigmoid(tx_test @ w), tau)
 
-    # 5. Output Diagnostics & Submission File Write
+    # 4. Output Diagnostics & Submission File Write
     print(
         f"Test set predictions: total={len(y_pred)}, "
         f"predicted positive (+1)={np.sum(y_pred == 1)} ({np.mean(y_pred == 1):.2%}), "
