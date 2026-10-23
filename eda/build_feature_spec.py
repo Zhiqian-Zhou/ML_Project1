@@ -2,7 +2,7 @@
 
 The EDA table column_decisions.csv describes each raw column with a free-text
 recommended_action. This script maps those actions to a fixed vocabulary, applies
-the corrections of the second EDA audit (OVERRIDES), adds the derived features,
+the corrections of the second EDA pass (OVERRIDES), adds the derived features,
 validates the result and writes feature_spec.csv. preprocessing.py reads only
 feature_spec.csv at run time; this script makes the spec reproducible.
 
@@ -13,11 +13,11 @@ Usage (from any folder):
         (default: the folder of this script).
     OUT_CSV: output path (default: EDA_DIR/feature_spec.csv).
     RAW_PATH: raw training matrix used to check that every positive value is
-        observed, either a .npz with key "x_train" or a .npy file
+        observed, a .npz with key "x_train"
         (default: EDA_DIR/../data/cache/raw.npz; the check is skipped if missing).
 
-Columns of feature_spec.csv: name, source, kind, positive_values, missing_ind,
-clip, group, notes. One row per raw column (raw order), then the derived rows.
+Columns of feature_spec.csv: name, source, kind, positive_values, notes. One row
+per raw column (raw order), then the derived rows.
 """
 
 import csv
@@ -28,15 +28,11 @@ import sys
 import numpy as np
 
 KINDS = ("drop", "binary", "ordinal", "onehot", "continuous", "continuous_log")
-GROUPS = ("", "state", "leaky")
 SPEC_COLUMNS = (
     "name",
     "source",
     "kind",
     "positive_values",
-    "missing_ind",
-    "clip",
-    "group",
     "notes",
 )
 FORBIDDEN_TYPES = ("admin", "id", "date", "weight")
@@ -90,22 +86,15 @@ POSITIVE_VALUES = {
     "_PASTRNG": "1",  # calculated: 1 = meets the strength guideline
     "_LMTACT1": "1",  # 1 = arthritis and limited usual activities
     "_LMTWRK1": "1",  # 1 = arthritis and limited work
-    "HAREHAB1": "1",  # leaky: 1 = yes, cardiac rehabilitation
-    "CVDASPRN": "1",  # leaky: 1 = yes, takes aspirin daily
-    "RDUCHART": "1",  # leaky: 1 = yes, aspirin against heart attack
-    "RDUCSTRK": "1",  # leaky: 1 = yes, aspirin against stroke
-    "RLIVPAIN": "1",  # leaky: 1 = yes, aspirin against pain
-    "ASPUNSAF": "1|2",  # leaky: 1, 2 = yes (not stomach / stomach), 3 = no
 }
 
-HEAVY_TAIL = "heavy-tailed count: log1p and optional clip"
-LEAKY = "leaky (EDA decision 2 / A2): ablation only with include_leaky"
+HEAVY_TAIL = "heavy-tailed count: log1p"
+LEAKY = "leaky: answered only after a heart attack (notebook section 7)"
 
-# Corrections applied on top of the legacy mapping: all rows of the audit file
-# SCR/audit2/A4/corrections.csv as amended by DESIGN.md section 1, plus the
-# leaky rows and the log/clip flags. Keys missing from a row keep the legacy value.
+# Corrections applied on top of the legacy mapping, from the second pass of the
+# EDA (notebooks/01_eda.ipynb), plus the leaky rows and the log1p counts.
 OVERRIDES = {
-    "_STATE": {"kind": "onehot", "group": "state", "why": "optional one-hot"},
+    "_STATE": {"kind": "drop", "why": "53 states; one-hot was noise in CV"},
     "QSTVER": {"kind": "drop", "why": "landline/cell split explained by age"},
     "MSCODE": {"kind": "drop", "why": "NaN == cell sample; phone block dropped"},
     "NUMADULT": {"kind": "drop", "why": "source of hh_adults"},
@@ -116,74 +105,54 @@ OVERRIDES = {
     "_FRUTSUM": {"kind": "drop", "why": "exact sum FTJUDA1_+FRUTDA1_"},
     "_VEGESUM": {"kind": "drop", "why": "exact sum of the 4 vegetable columns"},
     "_SMOKER3": {"kind": "onehot", "why": "positive rate not monotone"},
-    "_LMTACT1": {
-        "kind": "binary",
-        "missing_ind": 0,
-        "why": "level 3 == HAVARTH3=2; keep the limited flag",
-    },
-    "_LMTWRK1": {
-        "kind": "binary",
-        "missing_ind": 0,
-        "why": "level 3 == HAVARTH3=2; keep the limited flag",
-    },
-    "_LMTSCL1": {
-        "kind": "ordinal",
-        "missing_ind": 0,
-        "why": "positive rate strictly monotone in level",
-    },
-    "CHECKUP1": {"kind": "onehot", "why": "positive rate not monotone (A5)"},
+    "_LMTACT1": {"kind": "binary", "why": "level 3 == HAVARTH3=2: limited flag"},
+    "_LMTWRK1": {"kind": "binary", "why": "level 3 == HAVARTH3=2: limited flag"},
+    "_LMTSCL1": {"kind": "ordinal", "why": "positive rate monotone in level"},
+    "CHECKUP1": {"kind": "onehot", "why": "positive rate not monotone"},
     "_PACAT1": {"kind": "onehot", "why": "positive rate U-shaped"},
     "RENTHOM1": {"kind": "onehot", "why": "weak but cheap (3 levels)"},
     "USENOW3": {"kind": "binary", "why": "every day or some days vs not at all"},
     "_RFDRHV5": {"kind": "binary", "why": "calculated 1=no 2=yes: positive 2"},
     "_PASTRNG": {"kind": "binary", "why": "1 = meets strength guideline"},
-    "TOLDHI2": {"kind": "binary", "missing_ind": 0, "why": "NaN == BLOODCHO!=1"},
-    "DRADVISE": {"kind": "binary", "missing_ind": 0, "why": "NaN == WTCHSALT NaN"},
-    "HTIN4": {"kind": "continuous", "missing_ind": 0, "why": "NaN inside _BMI5 NaN"},
-    "WTKG3": {"kind": "continuous", "missing_ind": 0, "why": "NaN inside _BMI5 NaN"},
+    "TOLDHI2": {"kind": "binary", "why": "NaN == BLOODCHO!=1"},
+    "DRADVISE": {"kind": "binary", "why": "NaN == WTCHSALT NaN"},
+    "HTIN4": {"kind": "continuous", "why": "NaN inside _BMI5 NaN"},
+    "WTKG3": {"kind": "continuous", "why": "NaN inside _BMI5 NaN"},
     "JOINPAIN": {"kind": "continuous", "why": "0-10 pain scale"},
     "PHYSHLTH": {"kind": "continuous", "why": "bounded 0-30 days"},
     "MENTHLTH": {"kind": "continuous", "why": "bounded 0-30 days"},
     "POORHLTH": {"kind": "continuous", "why": "bounded 0-30 days"},
-    "PA1MIN_": {"kind": "continuous_log", "clip": 1, "why": HEAVY_TAIL},
-    "PA1VIGM_": {
-        "kind": "continuous_log",
-        "clip": 1,
-        "missing_ind": 0,
-        "why": HEAVY_TAIL + "; shares the PA1MIN_ indicator",
-    },
-    "_DRNKWEK": {"kind": "continuous_log", "clip": 1, "why": HEAVY_TAIL},
-    "DROCDY3_": {"kind": "continuous_log", "clip": 1, "why": HEAVY_TAIL},
-    "AVEDRNK2": {"kind": "continuous_log", "clip": 1, "why": HEAVY_TAIL},
-    "MAXDRNKS": {"kind": "continuous_log", "clip": 1, "why": HEAVY_TAIL},
-    "DRNK3GE5": {"kind": "continuous_log", "clip": 1, "why": HEAVY_TAIL},
-    "CHILDREN": {"kind": "continuous_log", "clip": 1, "why": HEAVY_TAIL},
-    "STRFREQ_": {"kind": "continuous_log", "clip": 1, "why": HEAVY_TAIL},
-    "FTJUDA1_": {"kind": "continuous_log", "clip": 1, "why": HEAVY_TAIL},
-    "FRUTDA1_": {"kind": "continuous_log", "clip": 1, "why": HEAVY_TAIL},
-    "BEANDAY_": {"kind": "continuous_log", "clip": 1, "why": HEAVY_TAIL},
-    "GRENDAY_": {"kind": "continuous_log", "clip": 1, "why": HEAVY_TAIL},
-    "ORNGDAY_": {"kind": "continuous_log", "clip": 1, "why": HEAVY_TAIL},
-    "VEGEDA1_": {"kind": "continuous_log", "clip": 1, "why": HEAVY_TAIL},
-    "HAREHAB1": {"kind": "binary", "group": "leaky", "missing_ind": 1, "why": LEAKY},
-    "CVDASPRN": {"kind": "binary", "group": "leaky", "missing_ind": 1, "why": LEAKY},
-    "RDUCHART": {"kind": "binary", "group": "leaky", "missing_ind": 1, "why": LEAKY},
-    "RDUCSTRK": {"kind": "binary", "group": "leaky", "missing_ind": 1, "why": LEAKY},
-    "RLIVPAIN": {"kind": "binary", "group": "leaky", "missing_ind": 1, "why": LEAKY},
-    "ASPUNSAF": {"kind": "binary", "group": "leaky", "missing_ind": 1, "why": LEAKY},
+    "PA1MIN_": {"kind": "continuous_log", "why": HEAVY_TAIL},
+    "PA1VIGM_": {"kind": "continuous_log", "why": HEAVY_TAIL},
+    "_DRNKWEK": {"kind": "continuous_log", "why": HEAVY_TAIL},
+    "DROCDY3_": {"kind": "continuous_log", "why": HEAVY_TAIL},
+    "AVEDRNK2": {"kind": "continuous_log", "why": HEAVY_TAIL},
+    "MAXDRNKS": {"kind": "continuous_log", "why": HEAVY_TAIL},
+    "DRNK3GE5": {"kind": "continuous_log", "why": HEAVY_TAIL},
+    "CHILDREN": {"kind": "continuous_log", "why": HEAVY_TAIL},
+    "STRFREQ_": {"kind": "continuous_log", "why": HEAVY_TAIL},
+    "FTJUDA1_": {"kind": "continuous_log", "why": HEAVY_TAIL},
+    "FRUTDA1_": {"kind": "continuous_log", "why": HEAVY_TAIL},
+    "BEANDAY_": {"kind": "continuous_log", "why": HEAVY_TAIL},
+    "GRENDAY_": {"kind": "continuous_log", "why": HEAVY_TAIL},
+    "ORNGDAY_": {"kind": "continuous_log", "why": HEAVY_TAIL},
+    "VEGEDA1_": {"kind": "continuous_log", "why": HEAVY_TAIL},
+    "HAREHAB1": {"kind": "drop", "why": LEAKY},
+    "CVDASPRN": {"kind": "drop", "why": LEAKY},
+    "RDUCHART": {"kind": "drop", "why": LEAKY},
+    "RDUCSTRK": {"kind": "drop", "why": LEAKY},
+    "RLIVPAIN": {"kind": "drop", "why": LEAKY},
+    "ASPUNSAF": {"kind": "drop", "why": LEAKY},
 }
 
-# Derived features appended after the raw rows. The recipe name before "(" is a
-# key of DERIVED in preprocessing.py; the arguments are raw column names.
+# Derived features appended after the raw rows (computed by
+# preprocessing.add_derived; "source" documents the recipe and its raw inputs).
 DERIVED_ROWS = (
     {
         "name": "hh_adults",
         "source": "derive:coalesce(NUMADULT;HHADULT)",
         "kind": "continuous_log",
         "positive_values": "",
-        "missing_ind": 0,
-        "clip": 1,
-        "group": "",
         "notes": "adults in household: landline NUMADULT else cell HHADULT",
     },
     {
@@ -191,9 +160,6 @@ DERIVED_ROWS = (
         "source": "derive:diabetes_years(_AGE80;DIABAGE2;DIABETE3)",
         "kind": "continuous",
         "positive_values": "",
-        "missing_ind": 0,
-        "clip": 0,
-        "group": "",
         "notes": "max(_AGE80-DIABAGE2;0) if diabetic; 0 if DIABETE3 in 2|3|4",
     },
 )
@@ -235,23 +201,14 @@ def build_rows(decisions):
             "source": "",
             "kind": old_kind,
             "positive_values": "",
-            "missing_ind": int("missing_indicator" in action),
-            "clip": 0,
-            "group": "",
             "notes": dec["reason"],
         }
         over = OVERRIDES.get(name)
         if over is not None:
-            for key in ("kind", "missing_ind", "clip", "group"):
-                if key in over:
-                    row[key] = over[key]
+            row["kind"] = over["kind"]
             row["notes"] = over["why"]
             if row["kind"] != old_kind:
                 diffs.append((name, old_kind, row["kind"], over["why"]))
-        if row["kind"] == "drop":
-            row["missing_ind"] = 0
-            row["clip"] = 0
-            row["group"] = ""
         if row["kind"] == "binary":
             row["positive_values"] = POSITIVE_VALUES.get(name, "")
         rows.append(row)
@@ -261,7 +218,7 @@ def build_rows(decisions):
 
 
 def validate_rows(rows, decisions, codes, x_raw=None):
-    """Check the spec rows against the contract (DESIGN.md section 3).
+    """Check the spec rows (kinds, binary positive values, special codes).
 
     Args:
         rows: list of dict, output of build_rows.
@@ -285,14 +242,8 @@ def validate_rows(rows, decisions, codes, x_raw=None):
         name, kind = row["name"], row["kind"]
         if kind not in KINDS:
             errors.append("%s: unknown kind %r" % (name, kind))
-        if row["group"] not in GROUPS:
-            errors.append("%s: unknown group %r" % (name, row["group"]))
-        if row["missing_ind"] not in (0, 1) or row["clip"] not in (0, 1):
-            errors.append("%s: missing_ind and clip must be 0 or 1" % name)
         if (kind == "binary") != bool(row["positive_values"]):
             errors.append("%s: positive_values iff kind=binary" % name)
-        if row["clip"] == 1 and kind != "continuous_log":
-            errors.append("%s: clip=1 only on continuous_log rows" % name)
         if row["source"]:
             if not row["source"].startswith("derive:"):
                 errors.append("%s: bad source %r" % (name, row["source"]))
@@ -342,17 +293,15 @@ def load_raw(path):
     """Load the raw training matrix for the positive-value check.
 
     Args:
-        path: str, .npz file with key "x_train" or .npy file.
+        path: str, .npz file with key "x_train".
 
     Returns:
         numpy array (N, 321), or None if the file does not exist.
     """
     if not path or not os.path.exists(path):
         return None
-    if path.endswith(".npz"):
-        with np.load(path) as data:
-            return data["x_train"]
-    return np.load(path, mmap_mode="r")
+    with np.load(path) as data:
+        return data["x_train"]
 
 
 def main(argv):

@@ -1,50 +1,48 @@
 """Reproduce our best AIcrowd submission from scratch.
 
-STATUS: baseline (final preprocessing, model not tuned yet). When finished,
-`python run.py` must write EXACTLY the same csv we submitted for our best
-AIcrowd score (fix every random seed).
+STATUS: baseline (final preprocessing, model not tuned yet). `python run.py`
+must write exactly the csv we submitted. No step is random: gradient descent
+starts from zeros and the threshold is chosen on the training scores.
 
-Usage:
-    python run.py --data_path data/dataset --output submissions/submission.csv
+Usage (the default paths are relative to this file):
+    python run.py [--data_path data/dataset] [--output submissions/submission.csv]
 """
 
 import argparse
+import os
 
 import numpy as np
 
 from helpers import create_csv_submission
 from implementations import reg_logistic_regression, sigmoid
 from metrics import best_threshold, predict_labels
-from preprocessing import load_data_cached, load_feature_names, preprocess
+from preprocessing import (
+    DEFAULT_CONFIG,
+    load_data_cached,
+    load_feature_names,
+    preprocess,
+)
 
-SEED = 42
+HERE = os.path.dirname(os.path.abspath(__file__))
 
-# Final hyperparameters, chosen by cross-validation (see notebooks/ and the
-# report). Keys not listed here take the values of
-# preprocessing.DEFAULT_CONFIG. Update them together with the report.
-CONFIG = {
-    "lambda_": 1e-4,
-    "gamma": 0.5,
-    "max_iters": 1000,
-}
+# Final options and hyperparameters, chosen by cross-validation (see the
+# report): the single source of truth is preprocessing.DEFAULT_CONFIG.
+CONFIG = DEFAULT_CONFIG
 
 
 def parse_args():
-    """Parse the command line arguments.
-
-    Returns:
-        argparse.Namespace with data_path and output.
-    """
+    """Parse the command line arguments (data_path, output)."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data_path", default="data/dataset")
-    parser.add_argument("--output", default="submissions/submission.csv")
+    parser.add_argument("--data_path", default=os.path.join(HERE, "data", "dataset"))
+    parser.add_argument(
+        "--output", default=os.path.join(HERE, "submissions", "submission.csv")
+    )
     return parser.parse_args()
 
 
 def main():
     """Load data, preprocess, train the final model and write the submission."""
     args = parse_args()
-    np.random.seed(SEED)
 
     # 1. Load data (labels in {-1, 1}).
     x_train, x_test, y_train, _, test_ids = load_data_cached(args.data_path)
@@ -77,6 +75,7 @@ def main():
     y_pred = predict_labels(sigmoid(tx_test @ w), threshold)
 
     # 5. Write the submission csv (Id, Prediction).
+    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     create_csv_submission(test_ids, y_pred, args.output)
     print(f"Submission written to {args.output}")
 
