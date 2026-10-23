@@ -282,7 +282,7 @@ def add_derived(xc, x_raw, feature_names):
     return x_out, list(feature_names) + ["hh_adults", "diabetes_years"]
 
 
-def clean_data(x_raw, feature_names, spec=None, codes=None):
+def clean_data(x_raw, feature_names, spec=None, codes=None, keep_raw=()):
     """Stateless cleaning of raw data (train and test can be cleaned apart).
 
     Args:
@@ -290,12 +290,14 @@ def clean_data(x_raw, feature_names, spec=None, codes=None):
         feature_names: list of the 321 raw column names.
         spec: list of spec rows (load_feature_spec), or None to read SPEC_PATH.
         codes: dict from load_special_codes, or None to read CODES_PATH.
+        keep_raw: names of dropped raw columns to append unchanged at the end
+            (e.g. ("_STATE",) for tree models). fit_preprocessor ignores them.
 
     Returns:
         (xc, names): the K spec rows whose kind is not drop (raw and derived,
         in spec order), then one 0/1 flag "<name>_dk" per raw kept column
         that has "don't know / refused" codes (its nan_codes): 1 if the raw
-        value is such a code.
+        value is such a code, then the keep_raw columns.
     """
     spec = load_feature_spec() if spec is None else spec
     codes = load_special_codes() if codes is None else codes
@@ -315,8 +317,9 @@ def clean_data(x_raw, feature_names, spec=None, codes=None):
     ix = {name: j for j, name in enumerate(all_names)}
     dk_names = [n for n in raw_out if codes.get(n, {}).get("nan_codes")]
     dk = [np.isin(x_sub[:, ix[n]], codes[n]["nan_codes"]) for n in dk_names]
-    xc = np.column_stack([xc[:, [ix[n] for n in out_names]]] + dk)
-    return xc, out_names + [n + "_dk" for n in dk_names]
+    extra = [x_raw[:, feature_names.index(n)] for n in keep_raw]
+    xc = np.column_stack([xc[:, [ix[n] for n in out_names]]] + dk + extra)
+    return xc, out_names + [n + "_dk" for n in dk_names] + list(keep_raw)
 
 
 # ----------------------------------------------------------------------
