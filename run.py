@@ -1,8 +1,14 @@
 """Reproduce our best AIcrowd submission from scratch.
 
-STATUS: baseline (final preprocessing, model not tuned yet). `python run.py`
-must write exactly the csv we submitted. No step is random: gradient descent
-starts from zeros and the threshold is chosen on the training scores.
+Final model (chosen by 5-fold cross-validation on the training rows):
+    * gbm.py: gradient boosted trees on the cleaned features, the state of
+      residence replaced by its smoothed prevalence of heart disease.
+    * mlp.py: mean of 10 small neural networks (64 ReLU units) on the
+      standardized pipeline features.
+    * score = 0.5 * GBM logit + 0.5 * MLP logit; the 14% of test rows with
+      the highest scores are predicted +1 (the share of positives that
+      maximized F1 in cross-validation).
+Every random step uses a fixed seed, so the csv is the same at every run.
 
 Usage (the default paths are relative to this file):
     python run.py [--data_path data/dataset] [--output submissions/submission.csv]
@@ -10,24 +16,25 @@ Usage (the default paths are relative to this file):
 
 import argparse
 import os
+import time
 
 import numpy as np
 
+import gbm
+import mlp
 from helpers import create_csv_submission
-from implementations import reg_logistic_regression, sigmoid
-from metrics import best_threshold, predict_labels
+from metrics import predict_labels
 from preprocessing import (
-    DEFAULT_CONFIG,
+    clean_data,
+    fit_preprocessor,
     load_data_cached,
     load_feature_names,
-    preprocess,
+    transform,
 )
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-# Final options and hyperparameters, chosen by cross-validation (see the
-# report): the single source of truth is preprocessing.DEFAULT_CONFIG.
-CONFIG = DEFAULT_CONFIG
+POSITIVE_RATE = 0.14  # share of test rows predicted +1
+MLP_CONFIG = {"interactions": False}  # preprocessing options of the MLP input
 
 
 def parse_args():
@@ -40,44 +47,46 @@ def parse_args():
     return parser.parse_args()
 
 
+def log(t0, message):
+    """Print a progress message with the elapsed time."""
+    print(f"[{time.time() - t0:6.0f}s] {message}", flush=True)
+
+
 def main():
-    """Load data, preprocess, train the final model and write the submission."""
+    """Load data, train both models, average their logits, write the csv."""
     args = parse_args()
+    t0 = time.time()
 
-    # 1. Load data (labels in {-1, 1}).
+    # 1. Load and clean the data (labels in {-1, 1}). The raw state code
+    # _STATE is kept as the last column for the trees.
     x_train, x_test, y_train, _, test_ids = load_data_cached(args.data_path)
-    feature_names = load_feature_names(args.data_path)
+    names = load_feature_names(args.data_path)
+    xc_train, xc_names = clean_data(x_train, names, keep_raw=("_STATE",))
+    xc_test, _ = clean_data(x_test, names, keep_raw=("_STATE",))
+    del x_train, x_test
+    log(t0, f"Cleaned data: train {xc_train.shape}, test {xc_test.shape}")
 
-    # 2. Preprocess: fit on train, apply to train and test. The labels are
-    # needed to choose the missing indicators, as inside cross-validation.
-    tx_train, tx_test = preprocess(
-        x_train, x_test, feature_names, CONFIG, y_train=y_train
-    )
-    print(f"Design matrix: train {tx_train.shape}, test {tx_test.shape}")
+    # 2. Gradient boosted trees on the cleaned matrix.
+    model = gbm.train(y_train, gbm.tree_features(xc_train, xc_names))
+    gbm_test = gbm.score(model, gbm.tree_features(xc_test, xc_names))
+    log(t0, f"GBM trained: {len(model['trees'])} trees")
 
-    # 3. Train the final model (logistic regression needs labels in {0, 1}).
-    y01 = (y_train + 1) / 2
-    initial_w = np.zeros(tx_train.shape[1])
-    w, loss = reg_logistic_regression(
-        y01,
-        tx_train,
-        CONFIG["lambda_"],
-        initial_w,
-        CONFIG["max_iters"],
-        CONFIG["gamma"],
-    )
-    print(f"Final training loss: {loss:.5f}")
+    # 3. Neural networks on the pipeline matrix (fitted on the training rows;
+    # without its last column xc is the default clean_data output).
+    state = fit_preprocessor(xc_train[:, :-1], xc_names[:-1], MLP_CONFIG, y=y_train)
+    model = mlp.train(y_train, transform(xc_train[:, :-1], state))
+    mlp_test = mlp.score(model, transform(xc_test[:, :-1], state))
+    log(t0, f"MLP trained: {len(model['nets'])} networks")
 
-    # 4. Choose the threshold that maximizes F1 on the training scores (as in
-    # cross-validation), then predict labels in {-1, 1}.
-    threshold, f1_train = best_threshold(y_train, sigmoid(tx_train @ w))
-    print(f"Threshold {threshold:.3f} (training F1 {f1_train:.4f})")
-    y_pred = predict_labels(sigmoid(tx_test @ w), threshold)
+    # 4. Average the two logits and predict +1 for the top POSITIVE_RATE.
+    scores = 0.5 * gbm_test + 0.5 * mlp_test
+    y_pred = predict_labels(scores, np.quantile(scores, 1 - POSITIVE_RATE))
+    log(t0, f"Predicted positives: {np.mean(y_pred == 1):.2%}")
 
     # 5. Write the submission csv (Id, Prediction).
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     create_csv_submission(test_ids, y_pred, args.output)
-    print(f"Submission written to {args.output}")
+    log(t0, f"Submission written to {args.output}")
 
 
 if __name__ == "__main__":
