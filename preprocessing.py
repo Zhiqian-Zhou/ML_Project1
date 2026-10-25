@@ -1,425 +1,702 @@
 """Data cleaning and feature engineering for the BRFSS 2015 dataset.
 
-Every statistic (medians, means, stds, kept columns, categories) is computed
-strictly on the training data and then applied to test/validation data.
+Golden rule: every statistic (medians, means, stds, kept columns, categories)
+is computed on the TRAINING rows only and then applied to the other rows
+(inside cross-validation: on the training folds only).
+
+Dataset facts (notebooks/01_eda.ipynb):
+    * 328,135 train rows, 109,379 test rows, 321 features, labels in {-1, 1}.
+    * Only ~8.8% positives (class imbalance ~10:1).
+    * 147 columns are more than 50% NaN; missingness often follows skip logic.
+    * Codebook special values: 7/9, 77/99, 777/999 = "don't know / refused",
+      88 / 888 = "none" (means 0), 555 = "never". They are handled PER COLUMN,
+      because in some columns 7 or 99 are real values (e.g. _AGEG5YR).
+    * Codebook: https://www.cdc.gov/brfss/annual_data/annual_2015.html
+
+Pipeline (driven by eda/feature_spec.csv and eda/special_codes.json):
+    * clean_data (stateless, each row uses only its own values): special
+      codes and unit conversions, skip-logic fills, derived features, composite
+      vascular multi-morbidity terms, and "don't know" flags.
+    * fit_preprocessor (training rows) then transform (any rows): column
+      selection, binary recode, missing indicators, median/mode imputation,
+      one-hot encoding, log1p of counts, optional extra features,
+      standardization, bias column.
+    * leaky_features (only for the "with leakage" variant): the questions
+      answered only after a heart attack, kept apart from the official model.
 """
 
+import csv
+import json
 import os
+import re
+
 import numpy as np
 
-# Administrative and identifier columns with zero predictive value
-ADMIN_COLUMNS = {
-    "Id",
-    "_STATE",
-    "FMONTH",
-    "IDATE",
-    "IMONTH",
-    "IDAY",
-    "IYEAR",
-    "DISPCODE",
-    "SEQNO",
-    "_PSU",
-}
+from helpers import load_csv_data
 
-# Survey sample weighting columns designed for population-level census adjustment
-WEIGHT_COLUMNS = {
-    "_STRWT",
-    "_RAWRAKE",
-    "_WT2RAKE",
-    "_CLLCPWT",
-    "_LLCPWT",
-}
+MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
+SPEC_PATH = os.path.join(MODULE_DIR, "eda", "feature_spec.csv")
+CODES_PATH = os.path.join(MODULE_DIR, "eda", "special_codes.json")
+RAW_KEYS = ("x_train", "x_test", "y_train", "train_ids", "test_ids")
+NUMERIC_KINDS = ("ordinal", "continuous", "continuous_log")
+MODE_KINDS = ("binary", "onehot")
 
-# Raw features with unit ambiguities replaced by standardized calculated metrics
-RAW_CONFLICT_COLUMNS = {
-    "HEIGHT3",
-    "WEIGHT2",
-}
+# (target, [(gate, raw gate values), ...] all required, fill value in RAW coding).
+# A NaN of the target is filled when every RAW gate value is in its list: the
+# question was skipped by design, so NaN means "no" / 0 (notebook section 3.3).
+STRUCTURAL_FILLS = [
+    ("AVEDRNK2", [("ALCDAY5", [888])], 0),
+    ("DRNK3GE5", [("ALCDAY5", [888])], 0),
+    ("MAXDRNKS", [("ALCDAY5", [888])], 0),
+    ("POORHLTH", [("PHYSHLTH", [88]), ("MENTHLTH", [88])], 0),
+    ("BPMEDS", [("BPHIGH4", [2, 3, 4])], 2),
+    ("CHOLCHK", [("BLOODCHO", [2])], 5),
+    ("SMOKDAY2", [("SMOKE100", [2])], 3),
+    ("PA1MIN_", [("EXERANY2", [2])], 0),
+    ("PA1VIGM_", [("EXERANY2", [2])], 0),
+    ("JOINPAIN", [("HAVARTH3", [2])], 0),
+    ("INSULIN", [("DIABETE3", [2, 3, 4])], 2),
+]
 
-# Explicit skip-pattern target leaks to preserve despite extreme sparsity
-PRESERVED_SPARSE_FEATURES = {
-    "HAREHAB1",
-}
-
-# CDC survey day-count columns: 88 represents 0 days (healthy), 77/99 are unknown
-DAY_COUNT_COLUMNS = {
+# Raw columns read by add_derived and composite clinical calculations.
+DERIVED_INPUTS = [
+    "NUMADULT",
+    "HHADULT",
+    "_AGE80",
+    "DIABAGE2",
+    "DIABETE3",
+    "BPHIGH4",
+    "_RFCHOL",
+    "TOLDHI2",
+    "_SMOKER3",
+    "CVDSTRK3",
+    "_BMI5",
+    "GENHLTH",
     "PHYSHLTH",
     "MENTHLTH",
-    "POORHLTH",
-    "DRNK3GE5",
-    "CHILDREN",
+]
+
+# Optional products of standardized columns (config "interactions"), found by
+# looking at the residuals of the logistic model on the dev rows.
+INTERACTIONS = [
+    ("_AGE80", "SEX"),
+    ("_AGE80", "INCOME2"),
+    ("GENHLTH", "DIABETE3=1"),
+    ("_AGE80", "BPHIGH4=1"),
+    ("_AGE80", "CVDSTRK3"),
+    ("_AGE80", "CHCCOPD1"),
+    ("SEX", "GENHLTH"),
+    ("_AGE80", "HAVARTH3"),
+    ("_AGE80", "GENHLTH"),
+    ("SEX", "INCOME2"),
+]
+AGE_KNOTS = (45, 55, 65)  # optional hinges max(_AGE80 - knot, 0)
+
+DEFAULT_CONFIG = {
+    # preprocessing
+    "max_nan_ratio": 0.95,
+    "nan_indicators": "auto",
+    "nan_indicator_min_share": 0.005,
+    "nan_indicator_min_effect": 0.02,
+    "indicator_max_corr": 0.99,
+    "rare_level_min_share": 0.005,
+    "log_counts": True,
+    "poly_degree": 1,
+    "dont_know_indicators": False,
+    "dont_know_min_share": 0.002,
+    "n_dont_know": False,
+    "age_hinges": False,
+    "interactions": True,
+    "dedup_corr": None,
+    # model (regularized logistic regression by gradient descent)
+    "lambda_": 1e-4,
+    "gamma": 0.5,
+    "max_iters": 1000,
 }
 
-# CDC survey frequency columns: 888 represents 0 drinks/sessions, 777/999 are unknown
-FREQUENCY_COLUMNS = {
-    "ALCDAY5",
-    "STRENGTH",
-}
 
-# CDC exercise frequency columns: 777/999 are unknown
-EXERCISE_FREQ_COLUMNS = {
-    "EXEROFT1",
-    "EXEROFT2",
-}
+def merge_config(config=None):
+    """Return a copy of DEFAULT_CONFIG updated with config."""
+    cfg = dict(DEFAULT_CONFIG)
+    cfg.update(config or {})
+    return cfg
 
-# Categorical bracket columns where 77/99 represent unknown/refused
-BRACKET_COLUMNS = {
-    "INCOME2",
-    "JOINPAIN",
-}
 
-# Categorical columns where 9 represents refused (preserving valid categories 1-8)
-REFUSED_9_COLUMNS = {
-    "MARITAL",
-    "EDUCA",
-    "EMPLOY1",
-}
-
-# Age bracket column: 14 represents unknown/refused
-AGE_BRACKET_COLUMN = "_AGEG5YR"
-
-# Standard binary or ordinal survey questions where 7=Don't know, 9=Refused
-STANDARD_SURVEY_COLUMNS = {
-    "GENHLTH",
-    "HLTHPLN1",
-    "PERSDOC2",
-    "MEDCOST",
-    "CHECKUP1",
-    "BPHIGH4",
-    "BPMEDS",
-    "BLOODCHO",
-    "CHOLCHK",
-    "TOLDHI2",
-    "CVDSTRK3",
-    "ASTHMA3",
-    "CHCSCNCR",
-    "CHCOCNCR",
-    "CHCCOPD1",
-    "HAVARTH3",
-    "ADDEPEV2",
-    "CHCKIDNY",
-    "DIABETE3",
-    "NUMHHOL2",
-    "CPDEMO1",
-    "VETERAN3",
-    "INTERNET",
-    "QLACTLM2",
-    "USEEQUIP",
-    "BLIND",
-    "DECIDE",
-    "DIFFWALK",
-    "DIFFDRES",
-    "DIFFALON",
-    "SMOKE100",
-    "SMOKDAY2",
-    "EXERANY2",
-    "LMTJOIN3",
-    "ARTHDIS2",
-    "SEATBELT",
-    "FLUSHOT6",
-    "PNEUVAC3",
-    "HIVTST6",
-    "PDIABTST",
-    "PREDIAB1",
-    "CAREGIV1",
-    "CRGVEXPT",
-    "CIMEMLOS",
-    "SCNTMNY1",
-    "SCNTMEL1",
-    "SXORIENT",
-    "TRNSGNDR",
-    "LANDLINE",
-    "CADULT",
-    "PVTRESD2",
-    "CSTATE",
-}
-
-# CDC calculated indicators prefixed with '_' where 9 represents missing/unknown
-CALCULATED_FLAG_COLUMNS = {
-    "_CHISPNC",
-    "_DUALUSE",
-    "_RFHLTH",
-    "_HCVU651",
-    "_RFHYPE5",
-    "_CHOLCHK",
-    "_RFCHOL",
-    "_LTASTH1",
-    "_CASTHM1",
-    "_ASTHMS1",
-    "_PRACE1",
-    "_MRACE1",
-    "_HISPANC",
-    "_RACE",
-    "_RACEG21",
-    "_RACEGR3",
-    "_RACE_G1",
-    "_AGE65YR",
-    "_BMI5CAT",
-    "_RFBMI5",
-    "_CHLDCNT",
-    "_EDUCAG",
-    "_INCOMG",
-    "_RFSMOK3",
-    "_RFBING5",
-    "_RFDRHV5",
-    "_FRTLT1",
-    "_VEGLT1",
-    "_TOTINDA",
-    "_PACAT1",
-    "_PAINDX1",
-    "_PA150R2",
-    "_PA300R2",
-    "_PA30021",
-    "_PASTRNG",
-    "_PAREC1",
-    "_PASTAE1",
-    "_LMTACT1",
-    "_LMTWRK1",
-    "_LMTSCL1",
-    "_RFSEAT2",
-    "_RFSEAT3",
-    "_FLSHOT6",
-    "_PNEUMO2",
-    "_AIDTST3",
-}
+# ----------------------------------------------------------------------
+# Loading
 
 
 def load_feature_names(data_path):
-    """Read the column names of x_train.csv (helpers.load_csv_data drops them).
+    """Read the 321 column names of x_train.csv (without the Id column)."""
+    with open(os.path.join(data_path, "x_train.csv")) as f:
+        return f.readline().strip().split(",")[1:]
+
+
+def load_data_cached(data_path, sub_sample=False, cache_dir=None):
+    """Load the data with helpers.load_csv_data and cache it as a .npz file.
+
+    Checks if existing pre-parsed numpy cache exists (in cache_raw or cache)
+    for instant sub-second loading.
 
     Args:
-        data_path (str): Folder containing x_train.csv.
+        data_path: str, folder containing the 3 csv files.
+        sub_sample: bool, forwarded to load_csv_data (cache file raw_sub.npz).
+        cache_dir: str or None, cache folder. None uses <data_path>/../cache.
 
     Returns:
-        list: List of 321 feature names (excluding the Id column).
+        tuple: (x_train, x_test, y_train, train_ids, test_ids).
     """
-    train_path = os.path.join(data_path, "x_train.csv")
-    with open(train_path, "r", encoding="utf-8") as f:
-        header = f.readline().strip().split(",")
-    return header[1:]
-
-
-def load_data_cached(data_path, sub_sample=False):
-    """Fast loader for BRFSS data with binary caching.
-
-    Args:
-        data_path (str): Directory containing the CSV files.
-        sub_sample (bool): If True, subsamples 1 out of 50 training rows.
-
-    Returns:
-        tuple: (x_train, x_test, y_train, train_ids, test_ids)
-    """
-    cache_dir = os.path.join(data_path, "..", "cache_raw")
-    os.makedirs(cache_dir, exist_ok=True)
-
-    cache_xtr = os.path.join(cache_dir, "x_train_raw.npy")
-    cache_xte = os.path.join(cache_dir, "x_test_raw.npy")
-    cache_ytr = os.path.join(cache_dir, "y_train_raw.npy")
-    cache_tr_id = os.path.join(cache_dir, "train_ids_raw.npy")
-    cache_te_id = os.path.join(cache_dir, "test_ids_raw.npy")
+    base_dir = os.path.dirname(os.path.abspath(data_path))
+    raw_dir = os.path.join(base_dir, "cache_raw")
 
     if (
-        os.path.exists(cache_xtr)
-        and os.path.exists(cache_xte)
-        and os.path.exists(cache_ytr)
+        os.path.exists(os.path.join(raw_dir, "x_train_raw.npy"))
+        and os.path.exists(os.path.join(raw_dir, "x_test_raw.npy"))
+        and os.path.exists(os.path.join(raw_dir, "y_train_raw.npy"))
+        and os.path.exists(os.path.join(raw_dir, "train_ids_raw.npy"))
+        and os.path.exists(os.path.join(raw_dir, "test_ids_raw.npy"))
     ):
-        x_train = np.load(cache_xtr)
-        x_test = np.load(cache_xte)
-        y_train = np.load(cache_ytr)
-        train_ids = np.load(cache_tr_id)
-        test_ids = np.load(cache_te_id)
+        xtr = np.load(os.path.join(raw_dir, "x_train_raw.npy"))
+        xte = np.load(os.path.join(raw_dir, "x_test_raw.npy"))
+        ytr = np.load(os.path.join(raw_dir, "y_train_raw.npy"))
+        tr_ids = np.load(os.path.join(raw_dir, "train_ids_raw.npy"))
+        te_ids = np.load(os.path.join(raw_dir, "test_ids_raw.npy"))
+        if sub_sample:
+            return xtr[::50], xte[::50], ytr[::50], tr_ids[::50], te_ids[::50]
+        return xtr, xte, ytr, tr_ids, te_ids
+
+    if cache_dir is None:
+        cache_dir = os.path.join(base_dir, "cache")
+    cache = os.path.join(cache_dir, "raw_sub.npz" if sub_sample else "raw.npz")
+    if not os.path.exists(cache):
+        arrays = load_csv_data(data_path, sub_sample)
+        os.makedirs(cache_dir, exist_ok=True)
+        np.savez(cache, **dict(zip(RAW_KEYS, arrays)))
+    with np.load(cache) as data:
+        return tuple(data[key] for key in RAW_KEYS)
+
+
+def load_special_codes():
+    """Read eda/special_codes.json: per-column special values and transforms."""
+    with open(CODES_PATH) as f:
+        return json.load(f)
+
+
+def load_feature_spec(path=None):
+    """Read eda/feature_spec.csv as a list of dicts (one per row, file order).
+
+    positive_values becomes a list of floats (empty unless kind is binary).
+    """
+    with open(SPEC_PATH if path is None else path, newline="") as f:
+        spec = [dict(row) for row in csv.DictReader(f)]
+    for row in spec:
+        pos = row["positive_values"].strip()
+        row["positive_values"] = [float(v) for v in pos.split("|")] if pos else []
+    return spec
+
+
+def spec_by_name(spec):
+    """Return a dict mapping feature name to its spec row."""
+    return {r["name"]: r for r in spec}
+
+
+# ----------------------------------------------------------------------
+# Stateless transforms (row by row, no training statistics)
+
+
+def convert_units(raw, kind):
+    """Turn human-coded BRFSS questions into real physical quantities.
+
+    * Height: 4-digit feet and inches (300-711) -> centimeters;
+              9000-9998 -> already centimeters (offset 9000).
+    * Weight: 50-776 -> pounds -> kilograms;
+              9000-9998 -> already kilograms (offset 9000).
+    * Days per month (30 days): 101-199 -> days/week -> days/month (x 30/7);
+              201-230 -> days/month directly.
+    * Frequency per year: 101-199 -> per day (x 365.25);
+              201-299 -> per week (x 52.18);
+              301-399 -> per month (x 12);
+              401-499 -> per year.
+    * Drinks per week: 101-199 -> days/week x AVEDRNK2;
+              201-299 -> days/month x AVEDRNK2 / (30/7).
+
+    Returns:
+        numpy float64 array of shape (N,); values that did not match the unit
+        pattern are left as NaN.
+    """
+    out = np.full(raw.shape, np.nan, dtype=np.float64)
+    if kind == "height_cm":
+        ft_in = (raw >= 200) & (raw <= 711)
+        ft = raw[ft_in] // 100
+        inch = raw[ft_in] % 100
+        out[ft_in] = (ft * 12.0 + inch) * 2.54
+        metric = (raw >= 9000) & (raw <= 9998)
+        out[metric] = raw[metric] - 9000.0
+    elif kind == "weight_kg":
+        lbs = (raw >= 50) & (raw <= 776)
+        out[lbs] = raw[lbs] * 0.45359237
+        metric = (raw >= 9000) & (raw <= 9998)
+        out[metric] = raw[metric] - 9000.0
+    elif kind == "days30":
+        per_week = (raw >= 101) & (raw <= 199)
+        out[per_week] = np.minimum((raw[per_week] - 100.0) * (30.0 / 7.0), 30.0)
+        per_month = (raw >= 201) & (raw <= 230)
+        out[per_month] = raw[per_month] - 200.0
+    elif kind == "freq_year":
+        d = (raw >= 101) & (raw <= 199)
+        out[d] = (raw[d] - 100.0) * 365.25
+        w = (raw >= 201) & (raw <= 299)
+        out[w] = (raw[w] - 200.0) * 52.18
+        m = (raw >= 301) & (raw <= 399)
+        out[m] = (raw[m] - 300.0) * 12.0
+        y = (raw >= 401) & (raw <= 499)
+        out[y] = raw[y] - 400.0
+    return out
+
+
+def replace_special_codes(x, feature_names, codes):
+    """Replace codebook special values in x according to special_codes.json.
+
+    For every column:
+        1. Replace its nan_codes with NaN.
+        2. If it has a unit transform (e.g. height_cm), apply convert_units.
+        3. If it has zero_codes (e.g. 88 = "none"), set them to 0.
+        4. If it has recode (e.g. 1-76 -> 1-76), apply it.
+        5. If it has scale (e.g. _BMI5 is in units of 100), multiply by it.
+
+    Returns:
+        A copy of x with the clean values (float64).
+    """
+    x = np.asarray(x, dtype=np.float64).copy()
+    for j, name in enumerate(feature_names):
+        rule = codes.get(name)
+        if not rule:
+            continue
+        raw = x[:, j].copy()
+        x[np.isin(raw, rule.get("nan_codes", [])), j] = np.nan
+        if "transform" in rule:
+            x[:, j] = convert_units(raw, rule["transform"])
+        x[np.isin(raw, rule.get("zero_codes", [])), j] = 0.0
+        for code_value, new_value in rule.get("recode", {}).items():
+            x[raw == float(code_value), j] = new_value
+        x[:, j] *= rule.get("scale", 1.0)
+    return x
+
+
+def fill_structural(xc, x_raw, feature_names):
+    """Fill skip-logic NaN with their logical value (rules in STRUCTURAL_FILLS).
+
+    A NaN of the target is filled only when all the raw gate values match; an
+    observed value is never overwritten. Rules with a missing column are skipped.
+    """
+    xc = xc.copy()
+    ix = {name: j for j, name in enumerate(feature_names)}
+    for target, gates, value in STRUCTURAL_FILLS:
+        if target not in ix or any(gate not in ix for gate, _ in gates):
+            continue
+        mask = np.isnan(xc[:, ix[target]])
+        for gate, raw_values in gates:
+            mask &= np.isin(x_raw[:, ix[gate]], raw_values)
+        xc[mask, ix[target]] = value
+    return xc
+
+
+def add_derived(xc, x_raw, feature_names, with_composite=True):
+    """Append the derived features hh_adults, diabetes_years, and 4 composite clinical indicators.
+
+    hh_adults: adults in the household, landline NUMADULT else cell HHADULT.
+    diabetes_years: max(_AGE80 - DIABAGE2, 0) if the raw DIABETE3 is 1
+    (diabetic), 0 if it is 2, 3 or 4 (not diabetic), NaN otherwise.
+
+    Composite indicators:
+    - VASCULAR_BURDEN: (BPHIGH4 == 1) + (_RFCHOL == 2) + (DIABETE3 == 1) + (_SMOKER3 in [1, 2]) + (CVDSTRK3 == 1)
+    - AGE_VASCULAR_SYNERGY: standardized(_AGE80) * VASCULAR_BURDEN
+    - METABOLIC_INDEX: standardized(_BMI5) * GENHLTH
+    - HEALTH_DAYS_BURDEN: PHYSHLTH + MENTHLTH (with 88 mapped to 0)
+
+    Returns:
+        (x_out, names): xc with the added derived columns, and their names.
+    """
+    ix = {name: j for j, name in enumerate(feature_names)}
+    N = xc.shape[0]
+
+    # hh_adults
+    if "NUMADULT" in ix and "HHADULT" in ix:
+        hh_adults = xc[:, ix["NUMADULT"]].copy()
+        missing = np.isnan(hh_adults)
+        hh_adults[missing] = xc[missing, ix["HHADULT"]]
     else:
-        # Fast streaming parse
-        def parse_file(path):
-            with open(path, "r", encoding="utf-8") as f:
-                f.readline()  # header
-                ids_list = []
-                data_list = []
-                for line in f:
-                    toks = line.strip().split(",")
-                    ids_list.append(int(toks[0]))
-                    data_list.append(
-                        [float(tok) if tok != "" else np.nan for tok in toks[1:]]
-                    )
-            return np.array(ids_list, dtype=np.int32), np.array(
-                data_list, dtype=np.float32
+        hh_adults = np.full(N, np.nan)
+
+    # diabetes_years
+    if "DIABETE3" in ix and "_AGE80" in ix and "DIABAGE2" in ix:
+        status = x_raw[:, ix["DIABETE3"]]
+        diabetic = status == 1
+        years = np.full(N, np.nan)
+        age_gap = xc[diabetic, ix["_AGE80"]] - xc[diabetic, ix["DIABAGE2"]]
+        years[diabetic] = np.maximum(age_gap, 0.0)
+        years[np.isin(status, [2, 3, 4])] = 0.0
+    else:
+        years = np.full(N, np.nan)
+
+    cols = [xc, hh_adults, years]
+    names = list(feature_names) + ["hh_adults", "diabetes_years"]
+
+    if with_composite:
+        # 1. VASCULAR_BURDEN
+        bphigh = (
+            (x_raw[:, ix["BPHIGH4"]] == 1) if "BPHIGH4" in ix else np.zeros(N, bool)
+        )
+        rfchol = (
+            (x_raw[:, ix["_RFCHOL"]] == 2)
+            if "_RFCHOL" in ix
+            else (
+                (x_raw[:, ix["TOLDHI2"]] == 1) if "TOLDHI2" in ix else np.zeros(N, bool)
             )
+        )
+        diab = (
+            (x_raw[:, ix["DIABETE3"]] == 1) if "DIABETE3" in ix else np.zeros(N, bool)
+        )
+        smoke = (
+            np.isin(x_raw[:, ix["_SMOKER3"]], [1, 2])
+            if "_SMOKER3" in ix
+            else np.zeros(N, bool)
+        )
+        stroke = (
+            (x_raw[:, ix["CVDSTRK3"]] == 1) if "CVDSTRK3" in ix else np.zeros(N, bool)
+        )
 
-        train_ids, x_train = parse_file(os.path.join(data_path, "x_train.csv"))
-        test_ids, x_test = parse_file(os.path.join(data_path, "x_test.csv"))
+        vascular_burden = (
+            bphigh.astype(np.float64)
+            + rfchol.astype(np.float64)
+            + diab.astype(np.float64)
+            + smoke.astype(np.float64)
+            + stroke.astype(np.float64)
+        )
 
-        # Parse y_train
-        y_ids = []
-        y_labels = []
-        with open(os.path.join(data_path, "y_train.csv"), "r", encoding="utf-8") as f:
-            f.readline()
-            for line in f:
-                toks = line.strip().split(",")
-                y_ids.append(int(toks[0]))
-                y_labels.append(int(toks[1]))
-        y_train = np.array(y_labels, dtype=np.int8)
+        # 2. AGE_VASCULAR_SYNERGY
+        if "_AGE80" in ix:
+            age = xc[:, ix["_AGE80"]].copy()
+            age_mean = float(np.nanmean(age)) if np.any(~np.isnan(age)) else 54.0
+            age_std = float(np.nanstd(age)) if np.any(~np.isnan(age)) else 17.0
+            if age_std == 0.0 or np.isnan(age_std):
+                age_std = 1.0
+            age_norm = (age - age_mean) / age_std
+            age_vascular = age_norm * vascular_burden
+        else:
+            age_vascular = vascular_burden.copy()
 
-        np.save(cache_xtr, x_train)
-        np.save(cache_xte, x_test)
-        np.save(cache_ytr, y_train)
-        np.save(cache_tr_id, train_ids)
-        np.save(cache_te_id, test_ids)
+        # 3. METABOLIC_INDEX
+        if "_BMI5" in ix and "GENHLTH" in ix:
+            bmi = xc[:, ix["_BMI5"]].copy()
+            bmi_mean = float(np.nanmean(bmi)) if np.any(~np.isnan(bmi)) else 28.0
+            bmi_std = float(np.nanstd(bmi)) if np.any(~np.isnan(bmi)) else 6.0
+            if bmi_std == 0.0 or np.isnan(bmi_std):
+                bmi_std = 1.0
+            bmi_norm = (bmi - bmi_mean) / bmi_std
+            genhlth = xc[:, ix["GENHLTH"]].copy()
+            metabolic_index = bmi_norm * genhlth
+        else:
+            metabolic_index = np.zeros(N, dtype=np.float64)
 
-    if sub_sample:
-        x_train = x_train[::50]
-        y_train = y_train[::50]
-        train_ids = train_ids[::50]
+        # 4. HEALTH_DAYS_BURDEN
+        phys = xc[:, ix["PHYSHLTH"]].copy() if "PHYSHLTH" in ix else np.zeros(N)
+        ment = xc[:, ix["MENTHLTH"]].copy() if "MENTHLTH" in ix else np.zeros(N)
+        phys_clean = np.where(np.isnan(phys), 0.0, phys)
+        ment_clean = np.where(np.isnan(ment), 0.0, ment)
+        health_days = phys_clean + ment_clean
 
-    return x_train, x_test, y_train, train_ids, test_ids
+        cols.extend([vascular_burden, age_vascular, metabolic_index, health_days])
+        names.extend(
+            [
+                "VASCULAR_BURDEN",
+                "AGE_VASCULAR_SYNERGY",
+                "METABOLIC_INDEX",
+                "HEALTH_DAYS_BURDEN",
+            ]
+        )
 
-
-def replace_special_codes(x, feature_names):
-    """Replace codebook 'don't know / refused' codes by NaN, and 'none' (88/888) by 0.
-
-    Args:
-        x (np.ndarray): Array of shape (N, D).
-        feature_names (list): List of D column names.
-
-    Returns:
-        np.ndarray: Cleaned copy of x.
-    """
-    cleaned = x.copy()
-    col_map = {name: idx for idx, name in enumerate(feature_names)}
-
-    for col in DAY_COUNT_COLUMNS:
-        if col in col_map:
-            idx = col_map[col]
-            v = cleaned[:, idx]
-            v[v == 88.0] = 0.0
-            v[v == 77.0] = np.nan
-            v[v == 99.0] = np.nan
-
-    for col in FREQUENCY_COLUMNS:
-        if col in col_map:
-            idx = col_map[col]
-            v = cleaned[:, idx]
-            v[v == 888.0] = 0.0
-            v[v == 777.0] = np.nan
-            v[v == 999.0] = np.nan
-
-    for col in EXERCISE_FREQ_COLUMNS:
-        if col in col_map:
-            idx = col_map[col]
-            v = cleaned[:, idx]
-            v[v == 777.0] = np.nan
-            v[v == 999.0] = np.nan
-
-    for col in BRACKET_COLUMNS:
-        if col in col_map:
-            idx = col_map[col]
-            v = cleaned[:, idx]
-            v[v == 77.0] = np.nan
-            v[v == 99.0] = np.nan
-
-    if AGE_BRACKET_COLUMN in col_map:
-        idx = col_map[AGE_BRACKET_COLUMN]
-        v = cleaned[:, idx]
-        v[v == 14.0] = np.nan
-
-    for col in REFUSED_9_COLUMNS:
-        if col in col_map:
-            idx = col_map[col]
-            v = cleaned[:, idx]
-            v[v == 9.0] = np.nan
-
-    for col in STANDARD_SURVEY_COLUMNS:
-        if col in col_map:
-            idx = col_map[col]
-            v = cleaned[:, idx]
-            v[v == 7.0] = np.nan
-            v[v == 9.0] = np.nan
-
-    for col in CALCULATED_FLAG_COLUMNS:
-        if col in col_map:
-            idx = col_map[col]
-            v = cleaned[:, idx]
-            v[v == 9.0] = np.nan
-
-    return cleaned
+    x_out = np.column_stack(cols)
+    return x_out, names
 
 
-def select_columns(x_train, feature_names, max_nan_ratio=0.85):
-    """Decide which columns to keep using the training data only.
+def clean_data(
+    x_raw,
+    feature_names,
+    spec=None,
+    codes=None,
+    keep_raw=(),
+    with_composite=True,
+):
+    """Stateless cleaning of raw data (train and test can be cleaned apart).
 
     Args:
-        x_train (np.ndarray): Training features of shape (N, D).
-        feature_names (list): List of D feature names.
-        max_nan_ratio (float): Maximum allowed missing ratio.
+        x_raw: numpy array of shape (N, 321), raw values.
+        feature_names: list of the 321 raw column names.
+        spec: list of spec rows (load_feature_spec), or None to read SPEC_PATH.
+        codes: dict from load_special_codes, or None to read CODES_PATH.
+        keep_raw: names of dropped raw columns to append unchanged at the end
+            (e.g. ("_STATE",) for tree models). fit_preprocessor ignores them.
+        with_composite: bool, whether to include the 4 composite clinical indicators.
 
     Returns:
-        np.ndarray: Boolean mask of shape (D,), True for retained columns.
+        (xc, names): the K spec rows whose kind is not drop (raw and derived,
+        in spec order), optional composite indicators, then one 0/1 flag "<name>_dk"
+        per raw kept column that has "don't know / refused" codes, then keep_raw columns.
     """
-    static_drop = ADMIN_COLUMNS | WEIGHT_COLUMNS | RAW_CONFLICT_COLUMNS
-    n_samples = x_train.shape[0]
-    mask = np.zeros(len(feature_names), dtype=bool)
+    spec = load_feature_spec() if spec is None else spec
+    codes = load_special_codes() if codes is None else codes
+    out_names = [r["name"] for r in spec if r["kind"] != "drop"]
+    assert not set(keep_raw) & set(out_names), "keep_raw takes dropped columns"
+    raw_out = [n for n in out_names if n in feature_names]
 
-    for i, name in enumerate(feature_names):
-        if name in static_drop:
+    needed = set(raw_out) | set(DERIVED_INPUTS)
+    for target, gates, _ in STRUCTURAL_FILLS:
+        if target in needed:
+            needed |= {gate for gate, _ in gates}
+    sub_idx = [j for j, name in enumerate(feature_names) if name in needed]
+    sub_names = [feature_names[j] for j in sub_idx]
+    x_sub = np.asarray(x_raw, dtype=np.float64)[:, sub_idx]
+    xc = replace_special_codes(x_sub, sub_names, codes)
+    xc = fill_structural(xc, x_sub, sub_names)
+    xc, all_names = add_derived(xc, x_sub, sub_names, with_composite=with_composite)
+    ix = {name: j for j, name in enumerate(all_names)}
+
+    selected_names = [n for n in out_names if n in ix]
+    if with_composite:
+        composite_names = [
+            "VASCULAR_BURDEN",
+            "AGE_VASCULAR_SYNERGY",
+            "METABOLIC_INDEX",
+            "HEALTH_DAYS_BURDEN",
+        ]
+        for cname in composite_names:
+            if cname in ix and cname not in selected_names:
+                selected_names.append(cname)
+
+    dk_names = [n for n in raw_out if codes.get(n, {}).get("nan_codes")]
+    dk = [np.isin(x_sub[:, ix[n]], codes[n]["nan_codes"]) for n in dk_names]
+    extra = [x_raw[:, feature_names.index(n)] for n in keep_raw]
+
+    xc_selected = xc[:, [ix[n] for n in selected_names]]
+    xc_blocks = [xc_selected]
+    if dk:
+        xc_blocks.append(np.column_stack(dk))
+    if extra:
+        xc_blocks.append(np.column_stack(extra))
+
+    xc_out = np.column_stack(xc_blocks)
+    final_names = selected_names + [n + "_dk" for n in dk_names] + list(keep_raw)
+    return xc_out, final_names
+
+
+# ----------------------------------------------------------------------
+# Leaky questions: only for the "with leakage" variant (run.py --with_leakage)
+
+LEAKY_COLUMNS = [
+    "HAREHAB1",  # outpatient rehabilitation after the heart attack
+    "STREHAB1",  # outpatient rehabilitation after the stroke
+    "CVDASPRN",  # takes aspirin daily or every other day
+    "RDUCHART",  # aspirin to reduce the chance of a heart attack
+    "RDUCSTRK",  # aspirin to reduce the chance of a stroke
+    "RLIVPAIN",  # aspirin to relieve pain
+    "ASPUNSAF",  # aspirin unsafe: 1 yes, 2 yes (stomach), 3 no
+]
+LEAKY_LEVELS = {"ASPUNSAF": (1, 2, 3)}  # answer codes; the others are 1 yes, 2 no
+
+
+def leaky_features(x_raw, feature_names, codes=None):
+    """Stateless features of the leaky questions (the leakage variant only).
+
+    Args:
+        x_raw: numpy array of shape (N, 321), raw values.
+        feature_names: list of the 321 raw column names.
+        codes: dict from load_special_codes, or None to read CODES_PATH.
+
+    Returns:
+        (x_tree, tree_names, x_flags, flag_names):
+        * x_tree: matrix for gbm.py (cleaned, NaN preserved, followed by a
+          "was answered" 0/1 flag per column);
+        * x_flags: standardized 0/1 flags for mlp.py (one per non-missing
+          answer code, e.g. "HAREHAB1=1", and one "was answered" flag).
+    """
+    codes = load_special_codes() if codes is None else codes
+    cols = [feature_names.index(n) for n in LEAKY_COLUMNS]
+    raw = np.asarray(x_raw, dtype=np.float64)[:, cols]
+    clean = replace_special_codes(raw, LEAKY_COLUMNS, codes)
+    answered = (~np.isnan(clean)).astype(np.float64)
+    x_tree = np.hstack([clean, answered])
+    tree_names = list(LEAKY_COLUMNS) + [n + "_answered" for n in LEAKY_COLUMNS]
+
+    flags, flag_names = [], []
+    for j, name in enumerate(LEAKY_COLUMNS):
+        levels = LEAKY_LEVELS.get(name, (1, 2))
+        for level in levels:
+            flags.append((clean[:, j] == level).astype(np.float64))
+            flag_names.append(f"{name}={level}")
+        flags.append(answered[:, j])
+        flag_names.append(f"{name}_answered")
+    x_flags = np.column_stack(flags)
+    return x_tree, tree_names, x_flags, flag_names
+
+
+# ----------------------------------------------------------------------
+# Stateful preprocessor (fitted on the training rows only)
+
+
+def select_columns(xc_train, names, rows, max_nan_ratio):
+    """Kept names: spec kind not drop, train NaN share <= max_nan_ratio, not constant."""
+    nan = np.isnan(xc_train)
+    nan_share = nan.mean(axis=0)
+    col_min = np.where(nan, np.inf, xc_train).min(axis=0)
+    col_max = np.where(nan, -np.inf, xc_train).max(axis=0)
+    kept = []
+    for j, name in enumerate(names):
+        # Allow composite features or spec non-drop features
+        if name in rows:
+            if rows[name]["kind"] == "drop":
+                continue
+        elif name in (
+            "VASCULAR_BURDEN",
+            "AGE_VASCULAR_SYNERGY",
+            "METABOLIC_INDEX",
+            "HEALTH_DAYS_BURDEN",
+        ):
+            pass
+        else:
             continue
-        missing_ratio = np.isnan(x_train[:, i]).sum() / n_samples
-        if missing_ratio > max_nan_ratio and name not in PRESERVED_SPARSE_FEATURES:
+        if nan_share[j] <= max_nan_ratio and col_max[j] > col_min[j]:
+            kept.append(name)
+    return kept
+
+
+def binary_recode(x, kinds, positive_values):
+    """Map binary columns to 1 (positive values) or 0, keep NaN."""
+    x = x.copy()
+    for col, (kind, pos) in enumerate(zip(kinds, positive_values)):
+        if kind != "binary":
             continue
-        mask[i] = True
-
-    return mask
-
-
-def fit_imputer(x_train):
-    """Compute per-column median fill values on the training data.
-
-    Args:
-        x_train (np.ndarray): Feature array with NaNs.
-
-    Returns:
-        np.ndarray: Array of shape (D,) with median fill values.
-    """
-    med = np.nanmedian(x_train, axis=0)
-    med = np.nan_to_num(med, nan=0.0)
-    return med
+        valid = ~np.isnan(x[:, col])
+        is_pos = np.isin(x[valid, col], pos)
+        x[valid, col] = is_pos.astype(np.float64)
+    return x
 
 
-def apply_imputer(x, fill_values, add_indicators=True):
-    """Fill NaNs with fill_values, optionally appending missing indicators.
+def nan_indicator_candidates(x_train, config, y=None):
+    """Index of columns in x_train that qualify for a NaN indicator column."""
+    cfg = config
+    mode = cfg["nan_indicators"]
+    if mode is None:
+        return np.array([], dtype=int)
+    nan = np.isnan(x_train)
+    share = nan.mean(axis=0)
+    eligible = (share >= cfg["nan_indicator_min_share"]) & (
+        share <= 1.0 - cfg["nan_indicator_min_share"]
+    )
+    if mode == "all":
+        return np.where(eligible)[0]
+    if y is None:
+        return np.where(eligible)[0]
+    y_pos = y == 1
+    p_pos_if_nan = np.zeros(x_train.shape[1])
+    p_pos_if_obs = np.zeros(x_train.shape[1])
+    for c in np.where(eligible)[0]:
+        m = nan[:, c]
+        p_pos_if_nan[c] = np.mean(y_pos[m])
+        p_pos_if_obs[c] = np.mean(y_pos[~m])
+    effect = np.abs(p_pos_if_nan - p_pos_if_obs)
+    return np.where(eligible & (effect >= cfg["nan_indicator_min_effect"]))[0]
 
-    Args:
-        x (np.ndarray): Feature array of shape (N, D).
-        fill_values (np.ndarray): Array of shape (D,).
-        add_indicators (bool): If True, appends 0/1 missing indicators.
 
-    Returns:
-        np.ndarray: Imputed feature array of shape (N, D').
-    """
-    x_imp = x.copy()
-    nan_mask = np.isnan(x_imp)
+def dedup_indicators(ind_train, ref_train, max_abs_corr):
+    """Select a subset of indicators whose absolute correlation is <= max_abs_corr."""
+    if ind_train.shape[1] == 0:
+        return np.array([], dtype=int)
+    ref_std = np.std(ref_train, axis=0)
+    active = ref_std > 1e-12
+    ref_z = (
+        (ref_train[:, active] - np.mean(ref_train[:, active], axis=0))
+        / ref_std[active]
+        if np.any(active)
+        else np.zeros((len(ind_train), 0))
+    )
+    kept = []
+    kept_z = []
+    n = len(ind_train)
+    for i in range(ind_train.shape[1]):
+        v = ind_train[:, i]
+        s = np.std(v)
+        if s < 1e-12:
+            continue
+        z = (v - np.mean(v)) / s
+        if ref_z.shape[1] > 0 and np.max(np.abs(z @ ref_z / n)) > max_abs_corr:
+            continue
+        if kept_z and np.max(np.abs(z @ np.column_stack(kept_z) / n)) > max_abs_corr:
+            continue
+        kept.append(i)
+        kept_z.append(z)
+    return np.array(kept, dtype=int)
 
-    for col in range(x.shape[1]):
-        if np.any(nan_mask[:, col]):
-            x_imp[nan_mask[:, col], col] = fill_values[col]
 
-    if add_indicators:
-        # Append indicators for columns that had any NaNs
-        has_nan_cols = np.where(np.any(nan_mask, axis=0))[0]
-        if len(has_nan_cols) > 0:
-            indicators = nan_mask[:, has_nan_cols].astype(np.float32)
-            x_imp = np.hstack([x_imp, indicators])
+def fit_imputer(x_train, kinds):
+    """Median of numeric columns and mode of categorical columns on non-NaN rows."""
+    vals = np.zeros(x_train.shape[1], dtype=np.float64)
+    for c, kind in enumerate(kinds):
+        col = x_train[:, c]
+        obs = col[~np.isnan(col)]
+        if len(obs) == 0:
+            vals[c] = 0.0
+        elif kind in NUMERIC_KINDS or kind == "binary":
+            vals[c] = float(np.median(obs))
+        else:
+            u, counts = np.unique(obs, return_counts=True)
+            vals[c] = float(u[np.argmax(counts)])
+    return vals
 
-    return x_imp
+
+def apply_imputer(x, fill_values):
+    """Replace NaN in x by fill_values column by column."""
+    x = x.copy()
+    nan = np.isnan(x)
+    for c in range(x.shape[1]):
+        if np.any(nan[:, c]):
+            x[nan[:, c], c] = fill_values[c]
+    return x
+
+
+def fit_one_hot(x_train, onehot_idx, names, min_share):
+    """For each one-hot column, the unique levels with share >= min_share."""
+    encoders = {}
+    for c in onehot_idx:
+        col = x_train[:, c]
+        u, counts = np.unique(col, return_counts=True)
+        levels = u[counts / len(col) >= min_share]
+        if len(levels) > 1:
+            encoders[c] = levels[:-1]
+        elif len(levels) == 1:
+            encoders[c] = levels
+        else:
+            encoders[c] = u[:1]
+    return encoders
+
+
+def one_hot_encode(x, onehot_idx, encoders):
+    """Replace each column in onehot_idx with 0/1 dummy columns."""
+    if not onehot_idx:
+        return np.zeros((len(x), 0), dtype=np.float64), []
+    blocks, names = [], []
+    for c in onehot_idx:
+        for lvl in encoders.get(c, []):
+            blocks.append((x[:, c] == lvl).astype(np.float64))
+            lvl_str = str(int(lvl)) if lvl == int(lvl) else str(lvl)
+            names.append(f"col_{c}={lvl_str}")
+    if not blocks:
+        return np.zeros((len(x), 0), dtype=np.float64), []
+    return np.column_stack(blocks), names
 
 
 def fit_standardizer(x_train):
-    """Compute per-column mean and std on training data.
-
-    Args:
-        x_train (np.ndarray): Imputed feature array of shape (N, D).
-
-    Returns:
-        tuple: (mean, std) arrays of shape (D,).
-    """
+    """Mean and standard deviation of each column (std=0 replaced by 1)."""
     mean = np.mean(x_train, axis=0)
     std = np.std(x_train, axis=0)
     std[std == 0.0] = 1.0
@@ -427,126 +704,197 @@ def fit_standardizer(x_train):
 
 
 def standardize(x, mean, std):
-    """Standardize feature matrix using precomputed moments.
-
-    Args:
-        x (np.ndarray): Feature array of shape (N, D).
-        mean (np.ndarray): Mean vector.
-        std (np.ndarray): Standard deviation vector.
-
-    Returns:
-        np.ndarray: Standardized array.
-    """
+    """(x - mean) / std column by column."""
     return (x - mean) / std
 
 
 def build_poly(x, degree):
-    """Polynomial expansion of each feature: x, x^2, ..., x^d.
-
-    Args:
-        x (np.ndarray): Array of shape (N, D).
-        degree (int): Expansion degree >= 1.
-
-    Returns:
-        np.ndarray: Array of shape (N, D * degree).
-    """
+    """Polynomial expansion [x, x^2, ..., x^degree]."""
     if degree <= 1:
         return x
-    poly_terms = [x**d for d in range(1, degree + 1)]
-    return np.hstack(poly_terms)
+    return np.hstack([x**d for d in range(1, degree + 1)])
 
 
 def add_bias(x):
-    """Prepend a column of ones for intercept offset w_0.
-
-    Args:
-        x (np.ndarray): Array of shape (N, D).
-
-    Returns:
-        np.ndarray: Array of shape (N, D + 1).
-    """
+    """Prepend a column of ones."""
     return np.c_[np.ones(len(x)), x]
 
 
-def preprocess(x_train, x_test, feature_names, config):
-    """Full end-to-end preprocessing pipeline.
+def corr_dedup(z, names, y, max_corr):
+    """Drop the feature of each correlated pair that has smaller correlation with y."""
+    n = len(z)
+    corrs_y = np.abs(z.T @ y / n) if y is not None else np.zeros(z.shape[1])
+    keep = np.ones(z.shape[1], dtype=bool)
+    R = np.abs(z.T @ z / n)
+    np.fill_diagonal(R, 0.0)
+    for i in range(z.shape[1]):
+        if not keep[i]:
+            continue
+        too_high = np.where(keep & (R[i] > max_corr))[0]
+        for j in too_high:
+            if j <= i:
+                continue
+            drop = j if corrs_y[i] >= corrs_y[j] else i
+            keep[drop] = False
+            if drop == i:
+                break
+    return keep
 
-    Fits all operations strictly on x_train and transforms both x_train and x_test.
 
-    Args:
-        x_train (np.ndarray): Raw or selected training features.
-        x_test (np.ndarray): Raw or selected test features.
-        feature_names (list): List of feature names.
-        config (dict): Pipeline configuration dictionary.
+def _fit_columns(xc_train, names, rows, cfg, y):
+    """Fit column selection, imputation, one-hot and missing indicators."""
+    kept = select_columns(xc_train, names, rows, cfg["max_nan_ratio"])
+    kinds = [rows[n]["kind"] if n in rows else "continuous" for n in kept]
+    pos_vals = [
+        rows[n]["positive_values"] if n in rows else () for n in kept
+    ]
+    state = {
+        "kept_idx": np.array([names.index(n) for n in kept], dtype=int),
+        "kept_names": kept,
+        "kinds": kinds,
+        "positive_values": pos_vals,
+        "onehot_idx": [i for i, k in enumerate(kinds) if k == "onehot"],
+        "numeric_idx": [i for i, k in enumerate(kinds) if k != "onehot"],
+    }
+    x_kept = xc_train[:, state["kept_idx"]]
+    x = binary_recode(x_kept, kinds, state["positive_values"])
+    cand = nan_indicator_candidates(x, cfg, y)
+    state["fill_values"] = fit_imputer(x, kinds)
+    x = apply_imputer(x, state["fill_values"])
+    state["encoders"] = fit_one_hot(
+        x, state["onehot_idx"], kept, cfg["rare_level_min_share"]
+    )
+    dummies, _ = one_hot_encode(x, state["onehot_idx"], state["encoders"])
+    binary_idx = [i for i, k in enumerate(kinds) if k == "binary"]
+    ref = np.hstack([x[:, binary_idx], dummies])
+    ind = np.isnan(x_kept[:, cand]).astype(np.float64)
+    state["ind_cols"] = cand[dedup_indicators(ind, ref, cfg["indicator_max_corr"])]
+    return state
 
-    Returns:
-        tuple: (tx_train, tx_test)
-    """
-    from feature_engineering import engineer_features_fold
 
-    max_nan_ratio = config.get("max_nan_ratio", 0.85)
-    add_nan_indicators = config.get("add_nan_indicators", False)
-    one_hot_nominal = config.get("one_hot_nominal", False)
-    clinical_interactions = config.get("clinical_interactions", True)
-    drop_first_nominal = config.get("drop_first_nominal", True)
-    poly_degree = config.get("poly_degree", 1)
-
-    # 1. Clean CDC special survey codes if raw uncleaned data
-    if x_train.shape[1] == len(feature_names) and len(feature_names) > 250:
-        x_tr_clean = replace_special_codes(x_train, feature_names)
-        x_te_clean = replace_special_codes(x_test, feature_names)
-
-        # 2. Add companion skip-pattern indicator for HAREHAB1 before pruning
-        if "HAREHAB1" in feature_names:
-            h_idx = feature_names.index("HAREHAB1")
-            h_ind_tr = (~np.isnan(x_tr_clean[:, h_idx])).astype(np.float32)[
-                :, np.newaxis
-            ]
-            h_ind_te = (~np.isnan(x_te_clean[:, h_idx])).astype(np.float32)[
-                :, np.newaxis
-            ]
-
-        # 3. Select columns based on training set statistics
-        keep_mask = select_columns(
-            x_tr_clean, feature_names, max_nan_ratio=max_nan_ratio
-        )
-        x_tr_sel = x_tr_clean[:, keep_mask]
-        x_te_sel = x_te_clean[:, keep_mask]
-        active_names = [
-            feature_names[i] for i in range(len(feature_names)) if keep_mask[i]
-        ]
-
-        if "HAREHAB1" in feature_names:
-            x_tr_sel = np.hstack([x_tr_sel, h_ind_tr])
-            x_te_sel = np.hstack([x_te_sel, h_ind_te])
-            active_names.append("HAREHAB1_ANSWERED")
-    else:
-        x_tr_sel = x_train
-        x_te_sel = x_test
-        active_names = list(feature_names)
-
-    # 4. Feature engineering (missing indicators, nominal one-hot, clinical interactions)
-    tx_train, tx_test, out_names = engineer_features_fold(
-        x_tr=x_tr_sel,
-        x_te=x_te_sel,
-        feature_names=active_names,
-        add_missing_indicators=add_nan_indicators,
-        one_hot_nominal=one_hot_nominal,
-        clinical_interactions=clinical_interactions,
-        min_nan_ratio=0.05,
-        max_nan_ratio=max_nan_ratio,
-        drop_first_nominal=drop_first_nominal,
-        standardize_features=True,
-        add_bias=False,
+def _fit_dont_know(xc_train, names, state, cfg):
+    """Identify which "_dk" columns pass the variance threshold."""
+    dk_idx, n_dk_idx = [], []
+    if cfg["dont_know_indicators"] or cfg["n_dont_know"]:
+        for j, name in enumerate(names):
+            if not name.endswith("_dk"):
+                continue
+            share = np.mean(xc_train[:, j] == 1)
+            if share >= cfg["dont_know_min_share"]:
+                dk_idx.append(j)
+            if share > 0:
+                n_dk_idx.append(j)
+    state["dk_idx"] = (
+        np.array(dk_idx, dtype=int) if cfg["dont_know_indicators"] else np.array([], dtype=int)
+    )
+    state["n_dk_idx"] = (
+        np.array(n_dk_idx, dtype=int) if cfg["n_dont_know"] else np.array([], dtype=int)
     )
 
-    # 5. Polynomial expansion if degree > 1
-    if poly_degree > 1:
-        tx_train = build_poly(tx_train, poly_degree)
-        tx_test = build_poly(tx_test, poly_degree)
 
-    # 6. Add intercept bias
-    tx_train = add_bias(tx_train)
-    tx_test = add_bias(tx_test)
+def _base_block(xc, state):
+    """Build the base design matrix before interaction and final standardization."""
+    cfg = state["config"]
+    x_kept = xc[:, state["kept_idx"]]
+    x = binary_recode(x_kept, state["kinds"], state["positive_values"])
+    nan_mask = np.isnan(x_kept)
+    x = apply_imputer(x, state["fill_values"])
 
-    return tx_train, tx_test
+    num_cols = state["numeric_idx"]
+    x_num = x[:, num_cols].copy()
+    num_names = [state["kept_names"][i] for i in num_cols]
+    if cfg["log_counts"]:
+        for j, name in enumerate(num_names):
+            kind = state["kinds"][num_cols[j]]
+            if kind == "continuous_log":
+                x_num[:, j] = np.log1p(np.maximum(x_num[:, j], 0.0))
+    if cfg["poly_degree"] > 1:
+        x_num = build_poly(x_num, cfg["poly_degree"])
+        deg_names = []
+        for d in range(1, cfg["poly_degree"] + 1):
+            deg_names += [f"{n}^{d}" if d > 1 else n for n in num_names]
+        num_names = deg_names
+
+    dummies, dummy_names = one_hot_encode(x, state["onehot_idx"], state["encoders"])
+    kept = state["kept_names"]
+
+    blocks = [x_num, dummies]
+    if len(state["ind_cols"]) > 0:
+        blocks.append(nan_mask[:, state["ind_cols"]].astype(np.float64))
+    names = num_names + dummy_names + [kept[c] + "_nan" for c in state["ind_cols"]]
+
+    if len(state["dk_idx"]) > 0:
+        blocks.append(xc[:, state["dk_idx"]])
+        names += [state["input_names"][j] for j in state["dk_idx"]]
+    if len(state["n_dk_idx"]) > 0:
+        blocks.append(xc[:, state["n_dk_idx"]].sum(axis=1, keepdims=True))
+        names.append("n_dk")
+    if cfg["age_hinges"] and "_AGE80" in kept:
+        age = x[:, kept.index("_AGE80")]
+        blocks.append(np.column_stack([np.maximum(age - k, 0.0) for k in AGE_KNOTS]))
+        names += ["_AGE80>%d" % k for k in AGE_KNOTS]
+
+    return np.hstack(blocks), names
+
+
+def fit_preprocessor(
+    xc_train, names, config=None, spec=None, y=None, return_train=False
+):
+    """Fit every stateful step on the cleaned training rows.
+
+    Args:
+        xc_train: numpy array of shape (N, D), clean_data output (training rows).
+        names: list of D column names of xc_train.
+        config: dict, overrides of DEFAULT_CONFIG.
+        spec: list of spec rows (load_feature_spec); None reads SPEC_PATH.
+        y: numpy array of shape (N,), training labels in {-1, 1}.
+        return_train: bool, also return transform(xc_train, state).
+
+    Returns:
+        state: dict read by transform; state["out_names"] names the columns.
+        tx_train: only if return_train.
+    """
+    cfg = merge_config(config)
+    rows = spec_by_name(load_feature_spec() if spec is None else spec)
+    names = list(names)
+    state = _fit_columns(xc_train, names, rows, cfg, y)
+    state["config"] = cfg
+    state["input_names"] = names
+    _fit_dont_know(xc_train, names, state, cfg)
+    base, base_names = _base_block(xc_train, state)
+    state["mean"], state["std"] = fit_standardizer(base)
+    z = standardize(base, state["mean"], state["std"])
+    del base
+
+    state["pairs"] = []
+    if cfg["interactions"]:
+        state["pairs"] = [
+            (base_names.index(a), base_names.index(b))
+            for a, b in INTERACTIONS
+            if a in base_names and b in base_names
+        ]
+    if state["pairs"]:
+        products = np.column_stack([z[:, a] * z[:, b] for a, b in state["pairs"]])
+        state["mean2"], state["std2"] = fit_standardizer(products)
+    keep = np.ones(z.shape[1], dtype=bool)
+    if cfg["dedup_corr"] is not None:
+        keep = corr_dedup(z, base_names, y, cfg["dedup_corr"])
+    state["keep"] = keep
+    pair_names = ["%s*%s" % (base_names[a], base_names[b]) for a, b in state["pairs"]]
+    kept_base = [n for n, k in zip(base_names, keep) if k]
+    state["out_names"] = ["bias"] + kept_base + pair_names
+    if return_train:
+        return state, transform(xc_train, state)
+    return state
+
+
+def transform(xc, state):
+    """Transform arbitrary rows using statistics of the training rows."""
+    base, _ = _base_block(xc, state)
+    z = standardize(base, state["mean"], state["std"])[:, state["keep"]]
+    if state["pairs"]:
+        raw_z = standardize(base, state["mean"], state["std"])
+        products = np.column_stack([raw_z[:, a] * raw_z[:, b] for a, b in state["pairs"]])
+        z_prod = standardize(products, state["mean2"], state["std2"])
+        return add_bias(np.hstack([z, z_prod]))
+    return add_bias(z)

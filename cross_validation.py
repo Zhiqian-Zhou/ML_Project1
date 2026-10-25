@@ -1,50 +1,64 @@
 """Stratified K-fold cross-validation and hyperparameter search harness.
 
-Guarantees leak-free evaluation: all imputation, standardization, and threshold
-calibration are fit strictly on training folds and tested on held-out validation folds.
+Based on labs/ex04 (build_k_indices, cross_validation, best_degree_selection),
+adapted to classification and the F1 score. cross_validate and grid_search
+provide the linear baselines of the report; cv_final.py reuses the folds for
+the final model.
+
+Leakage rules: the preprocessor (fit_preprocessor) is fitted on the training
+folds only and applied unchanged to the held-out fold, and the decision
+threshold is chosen on the training-fold scores.
 """
 
 import itertools
 import numpy as np
 
+from implementations import reg_logistic_regression, ridge_regression, sigmoid
 from metrics import (
     accuracy,
-    precision_recall_f1,
-    predict_labels,
     best_threshold,
     confusion_matrix,
+    precision_recall_f1,
+    predict_labels,
 )
+from preprocessing import fit_preprocessor, merge_config, transform
+
+METRICS = ("f1", "accuracy", "precision", "recall", "threshold", "f1_train")
 
 
 def build_k_indices(y, k_fold=5, seed=42):
-    """Split sample indices into k_fold stratified folds without dropping remainders.
+    """Split the row indices into k_fold stratified random folds.
 
-    Preserves exact class balance (e.g. 8.83% positive) across every fold.
+    Positives and negatives are shuffled separately and each class is cut
+    into k_fold nearly equal parts, so every fold has the same positive ratio
+    (8.8% positives) and no row is dropped.
 
     Args:
-        y (np.ndarray): Labels array of shape (N,), values in {-1, 1}.
-        k_fold (int): Number of folds (default: 5).
-        seed (int): Random seed for reproducible shuffling.
+        y: numpy array of shape (N,), labels in {-1, 1}.
+        k_fold: int, number of folds (default: 5).
+        seed: int, random seed (default: 42).
 
     Returns:
-        list: List of k_fold 1D numpy arrays containing sample indices for each fold.
+        List of k_fold sorted int arrays; every row is in exactly one fold.
     """
     rng = np.random.default_rng(seed)
-    pos_indices = np.where(y == 1)[0]
-    neg_indices = np.where(y == -1)[0]
+    pos = rng.permutation(np.flatnonzero(np.asarray(y) == 1))
+    neg = rng.permutation(np.flatnonzero(np.asarray(y) != 1))
+    pos_parts = np.array_split(pos, k_fold)
+    neg_parts = np.array_split(neg, k_fold)
+    return [
+        np.sort(np.concatenate([pos_parts[k], neg_parts[k]])).astype(np.int64)
+        for k in range(k_fold)
+    ]
 
-    shuffled_pos = rng.permutation(pos_indices)
-    shuffled_neg = rng.permutation(neg_indices)
 
-    pos_splits = np.array_split(shuffled_pos, k_fold)
-    neg_splits = np.array_split(shuffled_neg, k_fold)
-
-    folds = []
-    for k in range(k_fold):
-        fold_k = rng.permutation(np.concatenate([pos_splits[k], neg_splits[k]]))
-        folds.append(fold_k)
-
-    return folds
+def fold_split(k_indices, k):
+    """Return (training rows, held-out rows) of fold k."""
+    te_idx = np.asarray(k_indices[k])
+    tr_idx = np.sort(
+        np.concatenate([k_indices[i] for i in range(len(k_indices)) if i != k])
+    )
+    return tr_idx, te_idx
 
 
 def preprocess_fold(x_tr, x_te=None, add_bias=True):
@@ -99,152 +113,30 @@ def preprocess_fold(x_tr, x_te=None, add_bias=True):
     return x_tr_clean
 
 
-def cross_validate(
-    y,
-    x,
-    k_indices,
-    train_fn,
-    predict_fn,
-    tune_threshold=False,
-    threshold_candidates=None,
-    preprocess=True,
-):
-    """Run stratified K-fold cross-validation for a given model pipeline.
-
-    Args:
-        y (np.ndarray): Labels of shape (N,), values in {-1, 1}.
-        x (np.ndarray): Features of shape (N, D).
-        k_indices (list): Output of build_k_indices.
-        train_fn (callable): Function (y_tr, x_tr) -> model.
-        predict_fn (callable): Function (model, x_val) -> labels or real-valued scores.
-        tune_threshold (bool): If True, calibrates threshold on training folds.
-        threshold_candidates (np.ndarray, optional): Threshold candidates to search.
-        preprocess (bool): If True, applies leak-free median imputation and standardization.
-
-    Returns:
-        dict: Detailed metrics containing per-fold lists, means, and std deviations.
-    """
-    k_fold = len(k_indices)
-    fold_accuracies = []
-    fold_precisions = []
-    fold_recalls = []
-    fold_f1s = []
-    fold_balanced_accs = []
-    fold_thresholds = []
-
-    for k in range(k_fold):
-        val_idx = k_indices[k]
-        tr_idx = np.concatenate([k_indices[i] for i in range(k_fold) if i != k])
-
-        x_tr, y_tr = x[tr_idx], y[tr_idx]
-        x_val, y_val = x[val_idx], y[val_idx]
-
-        if preprocess:
-            x_tr_proc, x_val_proc = preprocess_fold(x_tr, x_val, add_bias=True)
-        else:
-            x_tr_proc, x_val_proc = x_tr, x_val
-
-        model = train_fn(y_tr, x_tr_proc)
-
-        if tune_threshold:
-            # Calibrate decision threshold exclusively on training fold predictions
-            scores_tr = predict_fn(model, x_tr_proc)
-            tau, _ = best_threshold(y_tr, scores_tr, threshold_candidates)
-            fold_thresholds.append(tau)
-
-            scores_val = predict_fn(model, x_val_proc)
-            y_pred = predict_labels(scores_val, tau)
-        else:
-            y_pred = predict_fn(model, x_val_proc)
-            # Ensure predictions are in {-1, 1}
-            if not np.all(np.isin(y_pred, [-1, 1])):
-                y_pred = np.where(y_pred >= 0.0, 1, -1)
-
-        acc = accuracy(y_val, y_pred)
-        prec, rec, f1 = precision_recall_f1(y_val, y_pred)
-        cm = confusion_matrix(y_val, y_pred)
-
-        fold_accuracies.append(acc)
-        fold_precisions.append(prec)
-        fold_recalls.append(rec)
-        fold_f1s.append(f1)
-        fold_balanced_accs.append(cm["balanced_accuracy"])
-
-    results = {
-        "accuracy": fold_accuracies,
-        "accuracy_mean": float(np.mean(fold_accuracies)),
-        "accuracy_std": float(np.std(fold_accuracies)),
-        "precision": fold_precisions,
-        "precision_mean": float(np.mean(fold_precisions)),
-        "precision_std": float(np.std(fold_precisions)),
-        "recall": fold_recalls,
-        "recall_mean": float(np.mean(fold_recalls)),
-        "recall_std": float(np.std(fold_recalls)),
-        "f1": fold_f1s,
-        "f1_mean": float(np.mean(fold_f1s)),
-        "f1_std": float(np.std(fold_f1s)),
-        "balanced_accuracy": fold_balanced_accs,
-        "balanced_accuracy_mean": float(np.mean(fold_balanced_accs)),
-        "balanced_accuracy_std": float(np.std(fold_balanced_accs)),
-        "thresholds": fold_thresholds,
-    }
-    return results
+def train_reg_logistic(y, tx, config):
+    """Regularized logistic regression by GD (labels mapped to {0, 1})."""
+    cfg = merge_config(config)
+    y01 = (np.asarray(y) == 1).astype(np.float64)
+    w, _ = reg_logistic_regression(
+        y01, tx, cfg["lambda_"], np.zeros(tx.shape[1]), cfg["max_iters"], cfg["gamma"]
+    )
+    return w
 
 
-def grid_search(
-    y,
-    x,
-    k_indices,
-    param_grid,
-    make_train_fn,
-    predict_fn,
-    tune_threshold=False,
-    threshold_candidates=None,
-):
-    """Exhaustive grid search across hyperparameter combinations using cross-validation.
+def logistic_scores(w, tx):
+    """Predicted probabilities sigmoid(tx @ w)."""
+    return sigmoid(tx @ w)
 
-    Args:
-        y (np.ndarray): Labels array.
-        x (np.ndarray): Feature matrix.
-        k_indices (list): Cross-validation fold indices.
-        param_grid (dict): Mapping of parameter names to lists of candidate values.
-        make_train_fn (callable): Function (param_dict) -> train_fn.
-        predict_fn (callable): Scoring function (model, x) -> predictions.
-        tune_threshold (bool): Whether to calibrate threshold on each fold.
-        threshold_candidates (np.ndarray, optional): Threshold candidates.
 
-    Returns:
-        tuple: (best_params, all_results)
-            best_params: dict with parameter combination yielding highest mean F1.
-            all_results: list of tuples (param_dict, cv_results).
-    """
-    keys = list(param_grid.keys())
-    values = list(param_grid.values())
-    combinations = [dict(zip(keys, prod)) for prod in itertools.product(*values)]
+def train_ridge(y, tx, config):
+    """Ridge regression on the {-1, 1} labels."""
+    w, _ = ridge_regression(np.asarray(y, dtype=np.float64), tx, config["lambda_"])
+    return w
 
-    best_params = None
-    best_f1 = -1.0
-    all_results = []
 
-    for params in combinations:
-        train_fn = make_train_fn(params)
-        cv_res = cross_validate(
-            y,
-            x,
-            k_indices,
-            train_fn,
-            predict_fn,
-            tune_threshold=tune_threshold,
-            threshold_candidates=threshold_candidates,
-        )
-        all_results.append((params, cv_res))
-
-        mean_f1 = cv_res["f1_mean"]
-        if mean_f1 > best_f1:
-            best_f1 = mean_f1
-            best_params = params
-
-    return best_params, all_results
+def linear_scores(w, tx):
+    """Linear scores tx @ w (ridge / least squares)."""
+    return tx @ w
 
 
 def weighted_ridge_regression(y, tx, lambda_, w_pos=1.0):
@@ -291,8 +183,7 @@ def cross_validate_weighted_ridge(
         y (np.ndarray): Labels array of shape (N,), values in {-1, 1}.
         x (np.ndarray): Feature matrix of shape (N, D).
         k_indices (list): Stratified fold splits.
-        feature_names (list, optional): List of feature names. If provided, uses
-            build_streamlined_features to construct the 205-dim design matrix.
+        feature_names (list, optional): List of feature names.
         lambda_ (float): Regularization strength.
         w_pos (float): Positive class weight.
         threshold_candidates (np.ndarray, optional): Threshold candidates.
@@ -318,14 +209,7 @@ def cross_validate_weighted_ridge(
         x_tr, y_tr = x[tr_idx], y[tr_idx]
         x_val, y_val = x[val_idx], y[val_idx]
 
-        if feature_names is not None:
-            from feature_engineering import build_streamlined_features
-
-            tx_tr, tx_val, _ = build_streamlined_features(
-                x_tr=x_tr, x_te=x_val, feature_names=feature_names
-            )
-        else:
-            tx_tr, tx_val = preprocess_fold(x_tr, x_val, add_bias=True)
+        tx_tr, tx_val = preprocess_fold(x_tr, x_val, add_bias=True)
 
         w, _ = weighted_ridge_regression(
             y_tr.astype(float), tx_tr, lambda_=lambda_, w_pos=w_pos
@@ -362,3 +246,132 @@ def cross_validate_weighted_ridge(
         "threshold_mean": float(np.mean(fold_thresholds)),
         "thresholds": fold_thresholds,
     }
+
+
+def prepare_folds(y, xc, names, k_indices, config):
+    """Fit the preprocessor on each training fold and transform both parts.
+
+    Args:
+        y: numpy array of shape (N,), labels in {-1, 1}.
+        xc: numpy array of shape (N, D), clean_data output.
+        names: list of D column names of xc.
+        k_indices: output of build_k_indices.
+        config: dict, preprocessing options (merged with DEFAULT_CONFIG).
+
+    Returns:
+        List of k tuples (tx_tr, y_tr, tx_te, y_te, state).
+    """
+    folds = []
+    for k in range(len(k_indices)):
+        tr_idx, te_idx = fold_split(k_indices, k)
+        state, tx_tr = fit_preprocessor(
+            xc[tr_idx], names, config, y=y[tr_idx], return_train=True
+        )
+        tx_te = transform(xc[te_idx], state)
+        folds.append((tx_tr, y[tr_idx], tx_te, y[te_idx], state))
+    return folds
+
+
+def summarize(res):
+    """Add "<m>_mean" and "<m>_std" to a dict of per-fold metric lists."""
+    out = {}
+    for m in METRICS:
+        out[m] = np.array(res[m], dtype=np.float64)
+        out[m + "_mean"] = float(np.mean(out[m]))
+        out[m + "_std"] = float(np.std(out[m]))
+    return out
+
+
+def cross_validate(
+    y,
+    xc,
+    names=None,
+    k_indices=None,
+    config=None,
+    train_fn=train_reg_logistic,
+    score_fn=logistic_scores,
+    folds=None,
+    verbose=False,
+):
+    """K-fold cross-validation of one preprocessing + model setting.
+
+    For each fold: preprocess with statistics of the training folds only,
+    train, choose the threshold that maximizes F1 on the training-fold
+    scores, then score the held-out fold.
+
+    Args:
+        y: numpy array of shape (N,), labels in {-1, 1}.
+        xc: numpy array of shape (N, D), clean_data output (unused if folds).
+        names: list of D column names of xc (unused if folds).
+        k_indices: output of build_k_indices.
+        config: dict, preprocessing and model options.
+        train_fn: callable (y_tr, tx_tr, config) -> w.
+        score_fn: callable (w, tx) -> scores of shape (N,).
+        folds: optional output of prepare_folds (skips the preprocessing).
+        verbose: bool, print one line per fold.
+
+    Returns:
+        dict with per-fold arrays "f1", "accuracy", "precision", "recall",
+        "threshold", "f1_train", their "_mean" and "_std", and "n_features".
+    """
+    if k_indices is None:
+        k_indices = build_k_indices(y, k_fold=5, seed=42)
+    cfg = merge_config(config)
+    if folds is None:
+        folds = prepare_folds(y, xc, names, k_indices, cfg)
+    res = dict((m, []) for m in METRICS)
+    for k, (tx_tr, y_tr, tx_te, y_te, _) in enumerate(folds):
+        w = train_fn(y_tr, tx_tr, cfg)
+        thr, f1_tr = best_threshold(y_tr, score_fn(w, tx_tr))
+        pred = predict_labels(score_fn(w, tx_te), thr)
+        prec, rec, f1 = precision_recall_f1(y_te, pred)
+        for m, v in zip(METRICS, (f1, accuracy(y_te, pred), prec, rec, thr, f1_tr)):
+            res[m].append(v)
+        if verbose:
+            print("fold %d: F1 %.4f (train %.4f) thr %.4f" % (k, f1, f1_tr, thr))
+    out = summarize(res)
+    out["n_features"] = int(folds[0][0].shape[1])
+    return out
+
+
+def grid_search(
+    y,
+    xc,
+    names,
+    k_indices,
+    config,
+    param_grid,
+    train_fn=train_reg_logistic,
+    score_fn=logistic_scores,
+    verbose=False,
+):
+    """Cross-validate every combination of MODEL parameters in param_grid.
+
+    The folds are preprocessed once with config; compare preprocessing
+    options with separate cross_validate calls.
+
+    Args:
+        y, xc, names, k_indices, config: as in cross_validate.
+        param_grid: dict name -> list of values, e.g. {"lambda_": [...]}.
+        train_fn, score_fn: as in cross_validate.
+        verbose: bool, print one line per combination.
+
+    Returns:
+        best_params: dict, the combination with the highest mean F1.
+        results: list of (params, cv_result) in grid order.
+    """
+    combos = [{}]
+    for key in param_grid:
+        combos = [dict(c, **{key: v}) for c in combos for v in param_grid[key]]
+    folds = prepare_folds(y, xc, names, k_indices, config)
+    results = []
+    for params in combos:
+        cfg = merge_config(dict(config or {}, **params))
+        res = cross_validate(
+            y, xc, names, k_indices, cfg, train_fn, score_fn, folds=folds
+        )
+        results.append((params, res))
+        if verbose:
+            print("%s: F1 %.4f +/- %.4f" % (params, res["f1_mean"], res["f1_std"]))
+    best = max(range(len(results)), key=lambda i: results[i][1]["f1_mean"])
+    return results[best][0], results

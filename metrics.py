@@ -24,7 +24,7 @@ def accuracy(y_true, y_pred):
 def precision_recall_f1(y_true, y_pred):
     """Compute precision, recall, and F1-score of the positive class (+1).
 
-    F1 = 2 * P * R / (P + R); returns 0.0 when denominator is 0.
+    F1 = 2 * P * R / (P + R) = 2 TP / (2 TP + FP + FN); returns 0.0 when there is no true positive.
 
     Args:
         y_true (np.ndarray): Ground truth labels of shape (N,), values in {-1, 1}.
@@ -38,6 +38,9 @@ def precision_recall_f1(y_true, y_pred):
     fp = float(np.sum((y_true == -1) & (y_pred == 1)))
     fn = float(np.sum((y_true == 1) & (y_pred == -1)))
 
+    if tp == 0.0:
+        return 0.0, 0.0, 0.0
+
     precision = tp / (tp + fp) if (tp + fp) > 0.0 else 0.0
     recall = tp / (tp + fn) if (tp + fn) > 0.0 else 0.0
     f1 = (
@@ -45,7 +48,7 @@ def precision_recall_f1(y_true, y_pred):
         if (precision + recall) > 0.0
         else 0.0
     )
-    return precision, recall, f1
+    return float(precision), float(recall), float(f1)
 
 
 def confusion_matrix(y_true, y_pred):
@@ -78,16 +81,16 @@ def confusion_matrix(y_true, y_pred):
 
 
 def predict_labels(scores, threshold):
-    """Convert real-valued decision scores into binary labels in {-1, 1}.
+    """Turn real-valued scores into binary classification labels {-1, 1}.
 
-    Predict +1 when score >= threshold, otherwise predict -1.
+    Rule: If score >= threshold -> +1, else -> -1.
 
     Args:
-        scores (np.ndarray): Real-valued predictions of shape (N,).
-        threshold (float): Decision boundary threshold.
+        scores (np.ndarray): Continuous prediction scores of shape (N,).
+        threshold (float): Decision cutoff boundary.
 
     Returns:
-        np.ndarray: Predicted labels of shape (N,), values in {-1, 1}.
+        np.ndarray: Predicted labels in {-1, 1} of shape (N,).
     """
     return np.where(scores >= threshold, 1, -1)
 
@@ -106,13 +109,7 @@ def best_threshold(y_true, scores, candidates=None):
         tuple: (best_threshold, best_f1)
     """
     if candidates is None:
-        # If scores look like probabilities in [0, 1], search [0.05, 0.50]
-        if np.all(scores >= 0.0) and np.all(scores <= 1.0):
-            candidates = np.linspace(0.05, 0.50, 46)
-        else:
-            candidates = np.linspace(
-                np.percentile(scores, 1), np.percentile(scores, 99), 100
-            )
+        candidates = np.unique(np.quantile(scores, np.linspace(0, 1, 101)))
 
     candidates = np.sort(candidates)
     pos_scores = np.sort(scores[y_true == 1])

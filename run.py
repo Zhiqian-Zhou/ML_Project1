@@ -1,317 +1,142 @@
 """Reproduce our best AIcrowd submission from scratch.
 
-Pipeline (Milestone 6.7 SOTA Super Tri-Blend):
-1. CDC survey code sanitation & leak-free median imputation.
-2. 5 Clinically grounded synergistic cross-terms (Framingham epidemiology) + 2 quadratics.
-3. Extended Empirical Bayesian Log-Odds Encoding (WoE) across 8 key demographic/clinical features.
-4. 10 Clinical subgroup bias-correcting and risk-linearizing terms.
-5. 10 Vascular Multi-Morbidity Synergy Conjunctions & Low-Risk Demographic Anchors (233 dimensions total).
-6. Super Tri-Blend of 3 heterogeneous sub-models with Simplex-Optimized Weights:
-   - Model 1: Cost-Sensitive Weighted Ridge (lambda = 1e-4, w_pos = 3.0, weight = 0.35)
-   - Model 2: Stratified Hard-Negative Balanced Logistic Bagging (M = 15 models, 50% hard + 50% easy negatives, weight = 0.40)
-   - Model 3: Differentiable Soft-F1 Metric Alignment via Adam (max_iters = 250, lr = 0.03, weight = 0.25)
-7. Dynamic decision threshold calibration tau* on blended percentile ranks or isotonic probabilities.
+Final model (chosen by 5-fold cross-validation on the training rows):
+    * gbm.py: gradient boosted trees on the cleaned features, the state of
+      residence replaced by its smoothed prevalence of heart disease.
+    * mlp.py: mean of 10 small neural networks (64 ReLU units) on the
+      standardized pipeline features.
+    * score = 0.5 * GBM logit + 0.5 * MLP logit; the 14% of test rows with
+      the highest scores are predicted +1 (the share of positives that
+      maximized F1 in cross-validation).
+Every random step uses a fixed seed, so the csv is the same at every run.
 
-Usage:
-    python run.py --data_path data/dataset --output submissions/submission_sota_m6_7.csv
+--with_leakage: the variant that also uses the leaky questions, which are
+answered only after a heart attack (preprocessing.LEAKY_COLUMNS). It shows
+how much they leak; it is not our model, because these answers do not exist
+for the undiagnosed people a screening model is meant for.
+
+Usage (the default paths are relative to this file):
+    python run.py [--data_path data/dataset] [--output submissions/submission.csv]
+                  [--with_leakage]
 """
 
 import argparse
-import json
 import os
 import time
 
 import numpy as np
 
-from cross_validation import weighted_ridge_regression
-from feature_engineering import (
-    IsotonicCalibrator,
-    build_advanced_features,
-    train_soft_f1_optimizer,
-)
+import gbm
+import mlp
 from helpers import create_csv_submission
-from implementations import reg_logistic_regression, ridge_regression, sigmoid
-from metrics import best_threshold, predict_labels
-from preprocessing import load_data_cached, load_feature_names
+from metrics import predict_labels
+from preprocessing import (
+    clean_data,
+    fit_preprocessor,
+    fit_standardizer,
+    leaky_features,
+    load_data_cached,
+    load_feature_names,
+    standardize,
+    transform,
+)
 
-SEED = 42
-
-CONFIG = {
-    "lambda_": 1e-4,
-    "w_pos": 3.0,
-    "gamma_logistic": 0.30,
-    "max_iters_logistic": 200,
-    "n_bags": 15,
-    "lr_soft_f1": 0.03,
-    "max_iters_soft_f1": 250,
-    "blend_weights": (0.35, 0.40, 0.25),
-}
-
-
-def rank_normalize(scores):
-    """Map real-valued continuous predictions to uniform percentile ranks in [0, 1]."""
-    return np.argsort(np.argsort(scores)) / float(len(scores))
-
-
-def compute_clinical_risk_scores(x_arr, feature_names):
-    """Compute composite clinical vulnerability score (0 to 7) for negative stratification."""
-    name_to_idx = {name: i for i, name in enumerate(feature_names)}
-    age = x_arr[:, name_to_idx["_AGEG5YR"]]
-    hbp = x_arr[:, name_to_idx["_RFHYPE5"]]
-    chol = x_arr[:, name_to_idx["_RFCHOL"]]
-    smoker = x_arr[:, name_to_idx["_SMOKER3"]]
-    diabete = x_arr[:, name_to_idx["DIABETE3"]]
-    stroke = x_arr[:, name_to_idx["CVDSTRK3"]]
-    genhlth = x_arr[:, name_to_idx["GENHLTH"]]
-
-    risk_score = (
-        (age >= 10.0).astype(int)
-        + (hbp == 2.0).astype(int)
-        + (chol == 2.0).astype(int)
-        + ((smoker == 1.0) | (smoker == 2.0)).astype(int)
-        + (diabete == 1.0).astype(int)
-        + (stroke == 1.0).astype(int)
-        + (genhlth >= 4.0).astype(int)
-    )
-    return risk_score
+HERE = os.path.dirname(os.path.abspath(__file__))
+POSITIVE_RATE = 0.14  # share of test rows predicted +1
+MLP_CONFIG = {"interactions": False}  # preprocessing options of the MLP input
 
 
 def parse_args():
-    """Parse command line arguments."""
+    """Parse the command line arguments (data_path, output, with_leakage)."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data_path", default="data/dataset")
-    parser.add_argument("--output", default="submissions/submission_sota_m6_7.csv")
-    parser.add_argument(
-        "--model",
-        choices=["super_blend", "weighted_ridge", "logistic"],
-        default="super_blend",
-        help="Model architecture: 'super_blend' (default best M6.7), 'weighted_ridge', or 'logistic'.",
-    )
-    parser.add_argument(
-        "--calibration",
-        choices=["rank", "isotonic"],
-        default="rank",
-        help="Calibration method: 'rank' (default uniform rank order) or 'isotonic' (PAVA calibration).",
-    )
-    return parser.parse_args()
+    parser.add_argument("--data_path", default=os.path.join(HERE, "data", "dataset"))
+    parser.add_argument("--output", default=None)
+    parser.add_argument("--with_leakage", action="store_true")
+    args = parser.parse_args()
+    if args.output is None:
+        name = "submission_with_leakage.csv" if args.with_leakage else "submission.csv"
+        args.output = os.path.join(HERE, "submissions", name)
+    return args
+
+
+def log(t0, message):
+    """Print a progress message with the elapsed time."""
+    print(f"[{time.time() - t0:6.0f}s] {message}", flush=True)
+
+
+def model_inputs(x_raw, names, with_leakage=False):
+    """Clean the raw rows for both models.
+
+    Returns:
+        xc, xc_names: clean_data output with the raw _STATE as last column.
+        leaky: None, or (tree block, 0/1 flags) of leaky_features when
+            with_leakage.
+    """
+    xc, xc_names = clean_data(x_raw, names, keep_raw=("_STATE",))
+    if not with_leakage:
+        return xc, xc_names, None
+    x_tree, _, x_flags, _ = leaky_features(x_raw, names)
+    return xc, xc_names, (x_tree, x_flags)
+
+
+def ensemble_scores(y_tr, xc_tr, xc_te, names, leaky_tr=None, leaky_te=None, seed=0):
+    """Train both models on the training rows, return the logits of the others.
+
+    Args:
+        y_tr: labels in {-1, 1} of the training rows.
+        xc_tr, xc_te: model_inputs matrices of the training / scored rows.
+        names: their column names (_STATE last).
+        leaky_tr, leaky_te: None, or the leaky blocks of model_inputs.
+        seed: added to the GBM seed (another inner split per CV fold).
+
+    Returns:
+        0.5 * GBM logit + 0.5 * MLP logit of the scored rows.
+    """
+    tree_tr, flags_tr = leaky_tr if leaky_tr is not None else (None, None)
+    tree_te, flags_te = leaky_te if leaky_te is not None else (None, None)
+    # Gradient boosted trees on the cleaned matrix.
+    params = {"seed": gbm.DEFAULT_PARAMS["seed"] + seed}
+    model = gbm.train(y_tr, gbm.tree_features(xc_tr, names, tree_tr), params)
+    s_gbm = gbm.score(model, gbm.tree_features(xc_te, names, tree_te))
+    # Neural networks on the pipeline matrix (fitted on the training rows;
+    # without its last column xc is the default clean_data output).
+    state = fit_preprocessor(xc_tr[:, :-1], names[:-1], MLP_CONFIG, y=y_tr)
+    tx_tr, tx_te = transform(xc_tr[:, :-1], state), transform(xc_te[:, :-1], state)
+    if flags_tr is not None:
+        mean, std = fit_standardizer(flags_tr)
+        tx_tr = np.hstack([tx_tr, standardize(flags_tr, mean, std)])
+        tx_te = np.hstack([tx_te, standardize(flags_te, mean, std)])
+    s_mlp = mlp.score(mlp.train(y_tr, tx_tr), tx_te)
+    return 0.5 * s_gbm + 0.5 * s_mlp
 
 
 def main():
-    """Load data, preprocess, train the final model and write the submission."""
+    """Load data, train both models, average their logits, write the csv."""
     args = parse_args()
-    np.random.seed(SEED)
+    t0 = time.time()
 
-    # 1. Fast binary cache path detection
-    repo_root = os.path.dirname(os.path.abspath(__file__))
-    processed_dir = os.path.join(repo_root, "data", "processed")
-    cache_xtr = os.path.join(processed_dir, "x_train.npy")
-    cache_xte = os.path.join(processed_dir, "x_test.npy")
-    cache_ytr = os.path.join(processed_dir, "y_train.npy")
-    cache_te_id = os.path.join(processed_dir, "test_ids.npy")
-    cache_feat = os.path.join(processed_dir, "features_selected.json")
+    # 1. Load and clean the data (labels in {-1, 1}).
+    x_train, x_test, y_train, _, test_ids = load_data_cached(args.data_path)
+    names = load_feature_names(args.data_path)
+    xc_train, xc_names, leaky_train = model_inputs(x_train, names, args.with_leakage)
+    xc_test, _, leaky_test = model_inputs(x_test, names, args.with_leakage)
+    del x_train, x_test
+    log(t0, f"Cleaned data: train {xc_train.shape}, test {xc_test.shape}")
 
-    t_load = time.time()
-    if (
-        os.path.exists(cache_xtr)
-        and os.path.exists(cache_xte)
-        and os.path.exists(cache_ytr)
-        and os.path.exists(cache_te_id)
-        and os.path.exists(cache_feat)
-    ):
-        print(f"Loading pre-sanitized dataset from cache ({processed_dir})...")
-        x_train = np.load(cache_xtr)
-        x_test = np.load(cache_xte)
-        y_train = np.load(cache_ytr)
-        test_ids = np.load(cache_te_id)
-        with open(cache_feat, "r") as f:
-            feature_names = json.load(f)
-    else:
-        print(f"Loading raw dataset from {args.data_path}...")
-        x_train, x_test, y_train, _, test_ids = load_data_cached(args.data_path)
-        feature_names = load_feature_names(args.data_path)
-
-    print(
-        f"Input dimensions: x_train={x_train.shape}, x_test={x_test.shape}, "
-        f"positive ratio={np.mean(y_train == 1):.4%} (loaded in {time.time() - t_load:.2f}s)"
+    # 2. Train the GBM and the MLP on all training rows, score the test rows.
+    scores = ensemble_scores(
+        y_train, xc_train, xc_test, xc_names, leaky_train, leaky_test
     )
+    log(t0, "GBM and MLP trained")
 
-    # 2. Build rich, clinical 233-dimensional design matrix
-    print("Building advanced 233-dimensional clinical design matrix...")
-    t_feat = time.time()
-    tx_train, tx_test, feature_out_names = build_advanced_features(
-        x_train, x_test, feature_names=feature_names, y_tr=y_train, alpha=20.0
-    )
-    print(
-        f"Design matrix constructed: tx_train={tx_train.shape}, tx_test={tx_test.shape} "
-        f"({len(feature_out_names)} features, computed in {time.time() - t_feat:.2f}s)"
-    )
+    # 3. Predict +1 for the top POSITIVE_RATE of the averaged logits.
+    y_pred = predict_labels(scores, np.quantile(scores, 1 - POSITIVE_RATE))
+    log(t0, f"Predicted positives: {np.mean(y_pred == 1):.2%}")
 
-    # 3. Model Training & Prediction
-    t_train = time.time()
-    if args.model == "super_blend":
-        w1, w2, w3 = CONFIG["blend_weights"]
-        print(
-            f"Training Milestone 6.6 Super Tri-Blend ({w1:.2f} Weighted Ridge + "
-            f"{w2:.2f} Hard-Negative Logistic Bagging + {w3:.2f} Soft-F1 Optimizer)..."
-        )
-
-        # Model 1: Cost-Sensitive Weighted Ridge
-        print("  [1/3] Training Cost-Sensitive Weighted Ridge (w_pos=3.0)...")
-        t0 = time.time()
-        w_ridge, _ = weighted_ridge_regression(
-            y_train.astype(float),
-            tx_train,
-            lambda_=CONFIG["lambda_"],
-            w_pos=CONFIG["w_pos"],
-        )
-        s1_tr = tx_train @ w_ridge
-        s1_te = tx_test @ w_ridge
-        print(f"        M1 finished in {time.time() - t0:.2f}s")
-
-        # Model 2: Stratified Hard-Negative Balanced Logistic Bagging
-        print(
-            f"  [2/3] Training Stratified Hard-Negative Logistic Bagging (M={CONFIG['n_bags']} bags, max_iters={CONFIG['max_iters_logistic']})..."
-        )
-        t0 = time.time()
-        pos_idx = np.where(y_train == 1)[0]
-        neg_idx = np.where(y_train == -1)[0]
-        n_pos = len(pos_idx)
-
-        risk_scores_tr = compute_clinical_risk_scores(x_train, feature_names)
-        hard_neg_idx = neg_idx[risk_scores_tr[neg_idx] >= 2]
-        easy_neg_idx = neg_idx[risk_scores_tr[neg_idx] <= 1]
-        print(
-            f"        Clinical negative stratification: {len(hard_neg_idx)} hard negatives (score >= 2), "
-            f"{len(easy_neg_idx)} easy negatives (score <= 1)"
-        )
-
-        rng = np.random.default_rng(SEED)
-        bag_tr = np.zeros(len(tx_train))
-        bag_te = np.zeros(len(tx_test))
-        n_half = n_pos // 2
-
-        for m in range(CONFIG["n_bags"]):
-            sub_hard = rng.choice(hard_neg_idx, size=n_half, replace=False)
-            sub_easy = rng.choice(easy_neg_idx, size=n_pos - n_half, replace=False)
-            sub_idx = np.concatenate([pos_idx, sub_hard, sub_easy])
-            y_sub_01 = (y_train[sub_idx] == 1).astype(float)
-            w0 = np.zeros(tx_train.shape[1])
-            w_bag, _ = reg_logistic_regression(
-                y_sub_01,
-                tx_train[sub_idx],
-                lambda_=CONFIG["lambda_"],
-                initial_w=w0,
-                max_iters=CONFIG["max_iters_logistic"],
-                gamma=CONFIG["gamma_logistic"],
-            )
-            bag_tr += sigmoid(tx_train @ w_bag)
-            bag_te += sigmoid(tx_test @ w_bag)
-        s2_tr = bag_tr / float(CONFIG["n_bags"])
-        s2_te = bag_te / float(CONFIG["n_bags"])
-        print(f"        M2 finished in {time.time() - t0:.2f}s")
-
-        # Model 3: Differentiable Soft-F1 Metric Alignment via Adam
-        print(
-            f"  [3/3] Training Differentiable Soft-F1 Optimizer (Adam lr={CONFIG['lr_soft_f1']}, max_iters={CONFIG['max_iters_soft_f1']})..."
-        )
-        t0 = time.time()
-        y01 = (y_train == 1).astype(float)
-        w_soft, _ = train_soft_f1_optimizer(
-            tx_train,
-            y01,
-            max_iters=CONFIG["max_iters_soft_f1"],
-            lr=CONFIG["lr_soft_f1"],
-            lambda_reg=1e-5,
-        )
-        s3_tr = sigmoid(tx_train @ w_soft)
-        s3_te = sigmoid(tx_test @ w_soft)
-        print(f"        M3 finished in {time.time() - t0:.2f}s")
-
-        if args.calibration == "isotonic":
-            print("Calibrating sub-model predictions via Pure-NumPy Isotonic PAVA...")
-            y_train_01 = (y_train == 1).astype(float)
-            cal1 = IsotonicCalibrator().fit(s1_tr, y_train_01)
-            cal2 = IsotonicCalibrator().fit(s2_tr, y_train_01)
-            cal3 = IsotonicCalibrator().fit(s3_tr, y_train_01)
-
-            p1_tr, p1_te = cal1.predict_proba(s1_tr), cal1.predict_proba(s1_te)
-            p2_tr, p2_te = cal2.predict_proba(s2_tr), cal2.predict_proba(s2_te)
-            p3_tr, p3_te = cal3.predict_proba(s3_tr), cal3.predict_proba(s3_te)
-
-            blend_tr = w1 * p1_tr + w2 * p2_tr + w3 * p3_tr
-            blend_te = w1 * p1_te + w2 * p2_te + w3 * p3_te
-
-            tau, train_f1 = best_threshold(
-                y_train, blend_tr, np.linspace(0.10, 0.50, 81)
-            )
-        else:
-            # Percentile Rank-Order Normalization
-            print("Normalizing sub-model scores to uniform percentile ranks...")
-            r1_tr, r1_te = rank_normalize(s1_tr), rank_normalize(s1_te)
-            r2_tr, r2_te = rank_normalize(s2_tr), rank_normalize(s2_te)
-            r3_tr, r3_te = rank_normalize(s3_tr), rank_normalize(s3_te)
-
-            blend_tr = w1 * r1_tr + w2 * r2_tr + w3 * r3_tr
-            blend_te = w1 * r1_te + w2 * r2_te + w3 * r3_te
-
-            tau, train_f1 = best_threshold(
-                y_train, blend_tr, np.linspace(0.65, 0.95, 61)
-            )
-
-        print(
-            f"Ensemble calibrated decision threshold: tau*={tau:.4f} (Train F1={train_f1:.4f}, "
-            f"all models trained in {time.time() - t_train:.2f}s)"
-        )
-        y_pred = predict_labels(blend_te, tau)
-
-    elif args.model == "weighted_ridge":
-        print(
-            f"Training Cost-Sensitive Weighted Ridge (lambda={CONFIG['lambda_']}, w_pos={CONFIG['w_pos']})..."
-        )
-        w, loss = weighted_ridge_regression(
-            y_train.astype(float),
-            tx_train,
-            lambda_=CONFIG["lambda_"],
-            w_pos=CONFIG["w_pos"],
-        )
-        scores_tr = tx_train @ w
-        tau, train_f1 = best_threshold(y_train, scores_tr, np.linspace(-1.0, 1.0, 201))
-        print(
-            f"Calibrated decision threshold: tau*={tau:.4f} (Train F1={train_f1:.4f})"
-        )
-        y_pred = predict_labels(tx_test @ w, tau)
-
-    else:
-        print(
-            f"Training Regularized Logistic Regression (lambda={CONFIG['lambda_']}, gamma={CONFIG['gamma_logistic']})..."
-        )
-        y01 = (y_train + 1) / 2
-        w0 = np.zeros(tx_train.shape[1])
-        w, loss = reg_logistic_regression(
-            y01,
-            tx_train,
-            CONFIG["lambda_"],
-            initial_w=w0,
-            max_iters=CONFIG["max_iters_logistic"],
-            gamma=CONFIG["gamma_logistic"],
-        )
-        probs_tr = sigmoid(tx_train @ w)
-        tau, train_f1 = best_threshold(y_train, probs_tr, np.linspace(0.05, 0.45, 81))
-        print(
-            f"Calibrated decision threshold: tau*={tau:.4f} (Train F1={train_f1:.4f})"
-        )
-        y_pred = predict_labels(sigmoid(tx_test @ w), tau)
-
-    # 4. Output Diagnostics & Submission File Write
-    print(
-        f"Test set predictions: total={len(y_pred)}, "
-        f"predicted positive (+1)={np.sum(y_pred == 1)} ({np.mean(y_pred == 1):.2%}), "
-        f"predicted negative (-1)={np.sum(y_pred == -1)} ({np.mean(y_pred == -1):.2%})"
-    )
-
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    # 4. Write the submission csv (Id, Prediction).
+    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     create_csv_submission(test_ids, y_pred, args.output)
-    print(f"Successfully generated submission: {args.output}")
+    log(t0, f"Submission written to {args.output}")
 
 
 if __name__ == "__main__":
