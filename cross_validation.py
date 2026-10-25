@@ -1,9 +1,9 @@
 """K-fold cross-validation and hyperparameter search.
 
 Based on labs/ex04 (build_k_indices, cross_validation, best_degree_selection),
-adapted to classification and the F1 score. Every number in the report
-(mean +/- std over folds) and every hyperparameter choice comes from here,
-never from the AIcrowd leaderboard.
+adapted to classification and the F1 score. cross_validate and grid_search
+give the linear baselines of the report; cv_final.py reuses the folds for
+the final model. No choice is made on the AIcrowd leaderboard.
 
 Leakage rules: the preprocessor (fit_preprocessor) is fitted on the training
 folds only and applied unchanged to the held-out fold, and the decision

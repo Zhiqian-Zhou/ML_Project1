@@ -756,7 +756,7 @@
    8
   ],
   "zero_codes": [],
-  "notes": "seatbelt use 1 always..5 never, 8 never ride"
+  "notes": "seatbelt use 1 always..5 never, 8 never ride (NaN, counted in SEATBELT_dk)"
  },
  "FLUSHOT6": {
   "nan_codes": [
@@ -2194,12 +2194,12 @@
  "PAFREQ1_": {
   "nan_codes": [],
   "zero_codes": [],
-  "notes": "activity1 times/week (= EXEROFT1) | 99 is a real value (EXEROFT=199), clip instead"
+  "notes": "activity1 times/week (= EXEROFT1) | 99 is a real value (EXEROFT=199), kept (log1p compresses it)"
  },
  "PAFREQ2_": {
   "nan_codes": [],
   "zero_codes": [],
-  "notes": "activity2 times/week | 99 is a real value (EXEROFT=199), clip instead"
+  "notes": "activity2 times/week | 99 is a real value (EXEROFT=199), kept (log1p compresses it)"
  },
  "_MINAC11": {
   "nan_codes": [],
@@ -2214,7 +2214,7 @@
  "STRFREQ_": {
   "nan_codes": [],
   "zero_codes": [],
-  "notes": "strength times/week | 88-99 are valid (rescaled times/week), clip instead"
+  "notes": "strength times/week | 88-99 are valid (rescaled times/week), kept (log1p compresses it)"
  },
  "PAMISS1_": {
   "nan_codes": [

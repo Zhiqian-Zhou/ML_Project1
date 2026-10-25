@@ -21,7 +21,6 @@ Pipeline (driven by eda/feature_spec.csv and eda/special_codes.json):
       selection, binary recode, missing indicators, median/mode imputation,
       one-hot encoding, log1p of counts, optional extra features,
       standardization, bias column.
-    * preprocess(x_train, x_test, feature_names, config) chains both.
 """
 
 import csv
@@ -173,8 +172,9 @@ def convert_units(raw, kind):
     """Convert BRFSS unit-encoded values to one unit (rules in "_transforms").
 
     kind is one of weight2 (-> kg), height3 (-> cm), perweek_wm (-> per week),
-    food (-> per day), peryear_dwmy (-> per year), hhmm (-> minutes). Values
-    outside the coded ranges (special codes, NaN) are returned as is.
+    food (-> per day), peryear_dwmy (-> per year), hhmm (-> minutes), days30
+    (already days, only the 88/77/99 codes apply). Values outside the coded
+    ranges (special codes, NaN) are returned as is.
     """
     out = raw.copy()
 
@@ -203,6 +203,8 @@ def convert_units(raw, kind):
     elif kind == "hhmm":  # hours and minutes (130 = 1 h 30) -> minutes
         known = ~np.isnan(raw)
         out[known] = raw[known] // 100 * 60 + raw[known] % 100
+    elif kind != "days30":
+        raise ValueError("unknown transform %r" % kind)
     return out
 
 
@@ -297,11 +299,12 @@ def clean_data(x_raw, feature_names, spec=None, codes=None, keep_raw=()):
         (xc, names): the K spec rows whose kind is not drop (raw and derived,
         in spec order), then one 0/1 flag "<name>_dk" per raw kept column
         that has "don't know / refused" codes (its nan_codes): 1 if the raw
-        value is such a code, then the keep_raw columns.
+        value is one of its nan_codes, then the keep_raw columns.
     """
     spec = load_feature_spec() if spec is None else spec
     codes = load_special_codes() if codes is None else codes
     out_names = [r["name"] for r in spec if r["kind"] != "drop"]
+    assert not set(keep_raw) & set(out_names), "keep_raw takes dropped columns"
     raw_out = [n for n in out_names if n in feature_names]
     # Raw columns needed by the outputs, the skip-logic fills and add_derived.
     needed = set(raw_out) | set(DERIVED_INPUTS)
@@ -680,6 +683,7 @@ def fit_preprocessor(
             for a, b in INTERACTIONS
             if a in base_names and b in base_names
         ]
+    if state["pairs"]:
         products = np.column_stack([z[:, a] * z[:, b] for a, b in state["pairs"]])
         state["mean2"], state["std2"] = fit_standardizer(products)
     keep = np.ones(z.shape[1], dtype=bool)
@@ -714,27 +718,3 @@ def transform(xc, state):
         products = np.column_stack([z[:, a] * z[:, b] for a, b in state["pairs"]])
         blocks.append(standardize(products, state["mean2"], state["std2"]))
     return add_bias(np.hstack(blocks))
-
-
-def preprocess(x_train, x_test, feature_names, config=None, y_train=None):
-    """Full pipeline: clean both sets, fit on x_train, transform both.
-
-    Args:
-        x_train: numpy array of shape (N, 321), raw training features.
-        x_test: numpy array of shape (M, 321), raw test features.
-        feature_names: list of 321 column names.
-        config: dict with the options (see DEFAULT_CONFIG).
-        y_train: numpy array of shape (N,), training labels in {-1, 1}.
-
-    Returns:
-        tx_train: numpy array of shape (N, D').
-        tx_test: numpy array of shape (M, D').
-    """
-    spec = load_feature_spec()
-    xc_train, names = clean_data(x_train, feature_names, spec=spec)
-    state, tx_train = fit_preprocessor(
-        xc_train, names, config, spec=spec, y=y_train, return_train=True
-    )
-    del xc_train
-    xc_test, _ = clean_data(x_test, feature_names, spec=spec)
-    return tx_train, transform(xc_test, state)

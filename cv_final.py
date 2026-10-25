@@ -5,10 +5,12 @@ encoding and both models are fitted on the training folds only, then the
 held-out fold is scored and its top POSITIVE_RATE scores are predicted +1.
 
 Usage:
-    python cv_final.py [--data_path data/dataset] [--split split.npz]
+    python cv_final.py [--data_path data/dataset] [--holdout]
                        [--n_rows N] [--k_fold 5]
---split: npz file with the dev_idx rows to use (default: all training rows);
---n_rows: only the first N of these rows (quick check).
+--holdout: cross-validate on the 80% dev rows of holdout_split, then train on
+    them and report the F1 on the 20% held-out rows (model selection used
+    the CV only; the held-out rows were scored once per final candidate);
+--n_rows: only the first N rows (quick check).
 """
 
 import argparse
@@ -30,10 +32,30 @@ def parse_args():
     """Parse the command line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data_path", default=os.path.join(HERE, "data", "dataset"))
-    parser.add_argument("--split", default=None)
+    parser.add_argument("--holdout", action="store_true")
     parser.add_argument("--n_rows", type=int, default=None)
     parser.add_argument("--k_fold", type=int, default=5)
     return parser.parse_args()
+
+
+def holdout_split(y, frac=0.2, seed=2026):
+    """Stratified split of the rows: (dev_idx, holdout_idx), frac of each class held out."""
+    rng = np.random.default_rng(seed)
+    pos, neg = np.where(y == 1)[0], np.where(y == -1)[0]
+    hold = np.concatenate(
+        [
+            rng.choice(pos, int(frac * len(pos)), replace=False),
+            rng.choice(neg, int(frac * len(neg)), replace=False),
+        ]
+    )
+    hold = np.sort(hold)
+    return np.setdiff1d(np.arange(len(y)), hold), hold
+
+
+def f1_top_rate(y, scores):
+    """F1 when the top POSITIVE_RATE scores are predicted +1."""
+    y_pred = predict_labels(scores, np.quantile(scores, 1 - POSITIVE_RATE))
+    return precision_recall_f1(y, y_pred)
 
 
 def final_scores(y_tr, xc_tr, xc_te, names, k):
@@ -53,25 +75,28 @@ def main():
     args = parse_args()
     t0 = time.time()
     x, _, y, _, _ = load_data_cached(args.data_path)
-    rows = np.arange(len(y))
-    if args.split is not None:
-        rows = np.load(args.split)["dev_idx"]
-    rows = rows[: args.n_rows]
     xc, names = clean_data(
-        x[rows], load_feature_names(args.data_path), keep_raw=("_STATE",)
+        x[: args.n_rows], load_feature_names(args.data_path), keep_raw=("_STATE",)
     )
-    y = y[rows]
+    y = y[: args.n_rows]
     del x
+    if args.holdout:
+        dev, hold = holdout_split(y)
+        xc_hold, y_hold = xc[hold], y[hold]
+        xc, y = xc[dev], y[dev]
     k_indices = build_k_indices(y, args.k_fold, 42)
     f1s = []
     for k in range(args.k_fold):
         tr, te = fold_split(k_indices, k)
         scores = final_scores(y[tr], xc[tr], xc[te], names, k)
-        y_pred = predict_labels(scores, np.quantile(scores, 1 - POSITIVE_RATE))
-        p, r, f1 = precision_recall_f1(y[te], y_pred)
+        p, r, f1 = f1_top_rate(y[te], scores)
         f1s.append(f1)
         print(f"fold {k}: F1 {f1:.4f} (P {p:.3f}, R {r:.3f}) [{time.time() - t0:.0f}s]")
     print(f"CV F1 {np.mean(f1s):.4f} +/- {np.std(f1s):.4f} on {len(y)} rows")
+    if args.holdout:
+        scores = final_scores(y, xc, xc_hold, names, args.k_fold)
+        p, r, f1 = f1_top_rate(y_hold, scores)
+        print(f"held-out F1 {f1:.4f} (P {p:.3f}, R {r:.3f}) on {len(y_hold)} rows")
 
 
 if __name__ == "__main__":

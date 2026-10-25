@@ -141,7 +141,8 @@ def train_one(y01, x, x_val, y_val01, p, seed):
     layers = init_params([x.shape[1]] + list(p["hidden"]) + [1], rng)
     m = [[np.zeros_like(W), np.zeros_like(b)] for W, b in layers]
     v = [[np.zeros_like(W), np.zeros_like(b)] for W, b in layers]
-    best_loss, best_layers, best_epoch, t = np.inf, None, 0, 0
+    best_loss, best_epoch, t = np.inf, 0, 0
+    best_layers = [[W.copy(), b.copy()] for W, b in layers]
     n = len(y01)
     for epoch in range(p["max_epochs"]):
         order = rng.permutation(n)

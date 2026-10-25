@@ -43,7 +43,15 @@ DEFAULT_PARAMS = {
 
 # Answers given only by people with a heart history (they leak the label).
 # clean_data already drops them; the guard makes sure they never come back.
-LEAKY = ["HAREHAB1", "CVDASPRN", "ASPUNSAF", "RLIVPAIN", "RDUCHART", "RDUCSTRK"]
+LEAKY = [
+    "HAREHAB1",
+    "CVDASPRN",
+    "ASPUNSAF",
+    "RLIVPAIN",
+    "RDUCHART",
+    "RDUCSTRK",
+    "STREHAB1",
+]
 
 
 def sigmoid(t):
