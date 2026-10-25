@@ -34,6 +34,7 @@ def parse_args():
     parser.add_argument("--with_leakage", action="store_true")
     parser.add_argument("--n_rows", type=int, default=None)
     parser.add_argument("--k_fold", type=int, default=5)
+    parser.add_argument("--top_rate", type=float, default=POSITIVE_RATE)
     return parser.parse_args()
 
 
@@ -51,9 +52,9 @@ def holdout_split(y, frac=0.2, seed=2026):
     return np.setdiff1d(np.arange(len(y)), hold), hold
 
 
-def f1_top_rate(y, scores):
-    """F1 when the top POSITIVE_RATE scores are predicted +1."""
-    y_pred = predict_labels(scores, np.quantile(scores, 1 - POSITIVE_RATE))
+def f1_top_rate(y, scores, top_rate=POSITIVE_RATE):
+    """F1 when the top top_rate scores are predicted +1."""
+    y_pred = predict_labels(scores, np.quantile(scores, 1.0 - top_rate))
     return precision_recall_f1(y, y_pred)
 
 
@@ -83,14 +84,23 @@ def main():
     for k in range(args.k_fold):
         tr, te = (rows[i] for i in fold_split(k_indices, k))
         scores = fold_scores(y, xc, xc_names, leaky, tr, te, k)
-        p, r, f1 = f1_top_rate(y[te], scores)
+        p, r, f1 = f1_top_rate(y[te], scores, args.top_rate)
         f1s.append(f1)
-        print(f"fold {k}: F1 {f1:.4f} (P {p:.3f}, R {r:.3f}) [{time.time() - t0:.0f}s]")
-    print(f"CV F1 {np.mean(f1s):.4f} +/- {np.std(f1s):.4f} on {len(rows)} rows")
+        print(
+            f"fold {k}: F1 {f1:.4f} (P {p:.3f}, R {r:.3f}) [{time.time() - t0:.0f}s]",
+            flush=True,
+        )
+    print(
+        f"CV F1 {np.mean(f1s):.4f} +/- {np.std(f1s):.4f} on {len(rows)} rows (top_rate={args.top_rate:.1%})",
+        flush=True,
+    )
     if args.holdout:
         scores = fold_scores(y, xc, xc_names, leaky, rows, hold, args.k_fold)
-        p, r, f1 = f1_top_rate(y[hold], scores)
-        print(f"held-out F1 {f1:.4f} (P {p:.3f}, R {r:.3f}) on {len(hold)} rows")
+        p, r, f1 = f1_top_rate(y[hold], scores, args.top_rate)
+        print(
+            f"held-out F1 {f1:.4f} (P {p:.3f}, R {r:.3f}) on {len(hold)} rows",
+            flush=True,
+        )
 
 
 if __name__ == "__main__":

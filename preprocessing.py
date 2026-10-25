@@ -615,8 +615,7 @@ def dedup_indicators(ind_train, ref_train, max_abs_corr):
     ref_std = np.std(ref_train, axis=0)
     active = ref_std > 1e-12
     ref_z = (
-        (ref_train[:, active] - np.mean(ref_train[:, active], axis=0))
-        / ref_std[active]
+        (ref_train[:, active] - np.mean(ref_train[:, active], axis=0)) / ref_std[active]
         if np.any(active)
         else np.zeros((len(ind_train), 0))
     )
@@ -745,9 +744,7 @@ def _fit_columns(xc_train, names, rows, cfg, y):
     """Fit column selection, imputation, one-hot and missing indicators."""
     kept = select_columns(xc_train, names, rows, cfg["max_nan_ratio"])
     kinds = [rows[n]["kind"] if n in rows else "continuous" for n in kept]
-    pos_vals = [
-        rows[n]["positive_values"] if n in rows else () for n in kept
-    ]
+    pos_vals = [rows[n]["positive_values"] if n in rows else () for n in kept]
     state = {
         "kept_idx": np.array([names.index(n) for n in kept], dtype=int),
         "kept_names": kept,
@@ -785,7 +782,9 @@ def _fit_dont_know(xc_train, names, state, cfg):
             if share > 0:
                 n_dk_idx.append(j)
     state["dk_idx"] = (
-        np.array(dk_idx, dtype=int) if cfg["dont_know_indicators"] else np.array([], dtype=int)
+        np.array(dk_idx, dtype=int)
+        if cfg["dont_know_indicators"]
+        else np.array([], dtype=int)
     )
     state["n_dk_idx"] = (
         np.array(n_dk_idx, dtype=int) if cfg["n_dont_know"] else np.array([], dtype=int)
@@ -894,7 +893,9 @@ def transform(xc, state):
     z = standardize(base, state["mean"], state["std"])[:, state["keep"]]
     if state["pairs"]:
         raw_z = standardize(base, state["mean"], state["std"])
-        products = np.column_stack([raw_z[:, a] * raw_z[:, b] for a, b in state["pairs"]])
+        products = np.column_stack(
+            [raw_z[:, a] * raw_z[:, b] for a, b in state["pairs"]]
+        )
         z_prod = standardize(products, state["mean2"], state["std2"])
         return add_bias(np.hstack([z, z_prod]))
     return add_bias(z)
