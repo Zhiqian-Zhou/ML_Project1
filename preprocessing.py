@@ -62,7 +62,8 @@ STRUCTURAL_FILLS = [
 DERIVED_INPUTS = ["NUMADULT", "HHADULT", "_AGE80", "DIABAGE2", "DIABETE3"]
 
 # Optional products of standardized columns (config "interactions"), found by
-# looking at the residuals of the logistic model on the dev rows.
+# looking at the residuals of the logistic model on the dev rows. On for the
+# logistic baselines, off for the final MLP (run.MLP_CONFIG).
 INTERACTIONS = [
     ("_AGE80", "SEX"),
     ("_AGE80", "INCOME2"),
@@ -330,11 +331,12 @@ def clean_data(x_raw, feature_names, spec=None, codes=None, keep_raw=()):
 # ----------------------------------------------------------------------
 # Leaky questions: only for the "with leakage" variant (run.py --with_leakage)
 
-# Questions of the optional cardiovascular module that only make sense after
-# a heart attack or a stroke: rehabilitation, and aspirin taken to prevent
-# another attack. In the training data every person who answered HAREHAB1 is
-# positive. They are a consequence of the label rather than a risk factor, and
-# a model used to screen undiagnosed people would not have them. So they are
+# Questions of the optional cardiovascular modules about care after a heart
+# attack or a stroke: rehabilitation (asked only after the event) and aspirin
+# use (mostly preventive treatment of heart patients). In the training data
+# every person who answered HAREHAB1 is positive; the aspirin answers are
+# weaker. They follow from the diagnosis rather than predict it, and a model
+# used to screen undiagnosed people would not have them. So they are
 # "drop" in the spec and the official model never sees them; the leakage
 # variant adds them only to measure how much they leak (report, ablation).
 LEAKY_COLUMNS = [

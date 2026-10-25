@@ -89,7 +89,7 @@ POSITIVE_VALUES = {
 }
 
 HEAVY_TAIL = "heavy-tailed count: log1p"
-LEAKY = "leaky: answered only after a heart attack (notebook section 7)"
+LEAKY = "leaky: answered only after a heart attack or a stroke (notebook section 7)"
 
 # Corrections applied on top of the legacy mapping, from the second pass of the
 # EDA (notebooks/01_eda.ipynb), plus the leaky rows and the log1p counts.
@@ -143,6 +143,7 @@ OVERRIDES = {
     "RDUCSTRK": {"kind": "drop", "why": LEAKY},
     "RLIVPAIN": {"kind": "drop", "why": LEAKY},
     "ASPUNSAF": {"kind": "drop", "why": LEAKY},
+    "STREHAB1": {"kind": "drop", "why": LEAKY},
 }
 
 # Derived features appended after the raw rows (computed by

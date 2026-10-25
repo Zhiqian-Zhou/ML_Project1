@@ -131,7 +131,8 @@ def main():
     )
     log(t0, "GBM and MLP trained")
 
-    # 3. Predict +1 for the top POSITIVE_RATE of the averaged logits.
+    # 3. Predict +1 for the top POSITIVE_RATE of the averaged logits
+    #    (LEAKY_POSITIVE_RATE with --with_leakage).
     rate = LEAKY_POSITIVE_RATE if args.with_leakage else POSITIVE_RATE
     y_pred = predict_labels(scores, np.quantile(scores, 1 - rate))
     log(t0, f"Predicted positives: {np.mean(y_pred == 1):.2%}")

@@ -23,6 +23,8 @@ of g and h per (feature, bin) are computed with np.bincount.
 
 import numpy as np
 
+from preprocessing import LEAKY_COLUMNS
+
 DEFAULT_PARAMS = {
     "n_trees": 1500,  # maximum number of boosting rounds
     "learning_rate": 0.05,  # shrinkage of every tree
@@ -44,15 +46,7 @@ DEFAULT_PARAMS = {
 # Answers given only by people with a heart history (they leak the label).
 # clean_data already drops them; the guard makes sure they never come back
 # (the leakage variant passes them on purpose, as x_leaky of tree_features).
-LEAKY = [
-    "HAREHAB1",
-    "CVDASPRN",
-    "ASPUNSAF",
-    "RLIVPAIN",
-    "RDUCHART",
-    "RDUCSTRK",
-    "STREHAB1",
-]
+LEAKY = LEAKY_COLUMNS
 
 
 def sigmoid(t):
@@ -65,6 +59,7 @@ def logistic_loss(y01, f):
     return float(np.mean(np.logaddexp(0.0, f) - y01 * f))
 
 
+# ---------------------------------------------------------------- inputs
 def tree_features(xc, names, x_leaky=None):
     """Input of the trees: the cleaned matrix without the leaky columns.
 
@@ -90,7 +85,6 @@ def tree_features(xc, names, x_leaky=None):
     return np.hstack([x[:, :-1], x_leaky, x[:, -1:]])
 
 
-# ---------------------------------------------------------------- inputs
 def stratified_split(y, frac, seed):
     """Indices (train, valid) with a share `frac` of each class in valid."""
     rng = np.random.default_rng(seed)
@@ -160,6 +154,7 @@ def apply_bins(x, edges, n_bins):
     Returns:
         uint8 numpy array (N, D).
     """
+    assert n_bins < 255, "bins are stored as uint8 (NaN uses index n_bins)"
     xb = np.empty(x.shape, dtype=np.uint8)
     for j, e in enumerate(edges):
         col = x[:, j]

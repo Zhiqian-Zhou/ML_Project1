@@ -1,8 +1,9 @@
-"""5-fold cross-validation of the final model (GBM + MLP, top 14% positive).
+"""5-fold cross-validation of the final model (GBM + MLP averaged logits).
 
 Same steps as run.py inside every fold: the preprocessor, the target
 encoding and both models are fitted on the training folds only, then the
-held-out fold is scored and its top POSITIVE_RATE scores are predicted +1.
+held-out fold is scored and its top POSITIVE_RATE scores are predicted +1
+(LEAKY_POSITIVE_RATE with --with_leakage).
 
 Usage:
     python cv_final.py [--data_path data/dataset] [--holdout] [--with_leakage]
@@ -23,8 +24,16 @@ import numpy as np
 from cross_validation import build_k_indices, fold_split
 from metrics import precision_recall_f1, predict_labels
 from preprocessing import load_data_cached, load_feature_names
-from run import HERE, LEAKY_POSITIVE_RATE, POSITIVE_RATE
-from run import ensemble_scores, model_inputs
+from run import (
+    HERE,
+    LEAKY_POSITIVE_RATE,
+    POSITIVE_RATE,
+    ensemble_scores,
+    model_inputs,
+)
+
+CV_SEED = 42  # fold assignment of build_k_indices
+HOLDOUT_SEED = 2026  # rows of the 20% hold-out
 
 
 def parse_args():
@@ -38,7 +47,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def holdout_split(y, frac=0.2, seed=2026):
+def holdout_split(y, frac=0.2, seed=HOLDOUT_SEED):
     """Stratified split of the rows: (dev_idx, holdout_idx), frac of each class held out."""
     rng = np.random.default_rng(seed)
     pos, neg = np.where(y == 1)[0], np.where(y == -1)[0]
@@ -80,7 +89,7 @@ def main():
     if args.holdout:
         rows, hold = holdout_split(y)
     rate = LEAKY_POSITIVE_RATE if args.with_leakage else POSITIVE_RATE
-    k_indices = build_k_indices(y[rows], args.k_fold, 42)
+    k_indices = build_k_indices(y[rows], args.k_fold, CV_SEED)
     f1s = []
     for k in range(args.k_fold):
         tr, te = (rows[i] for i in fold_split(k_indices, k))

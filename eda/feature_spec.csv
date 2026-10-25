@@ -154,13 +154,13 @@ ASYMPTOM,,drop,,"optional module with >80% NaN, weak/redundant"
 ASNOSLEP,,drop,,"optional module with >80% NaN, weak/redundant"
 ASTHMED3,,drop,,"optional module with >80% NaN, weak/redundant"
 ASINHALR,,drop,,"optional module with >80% NaN, weak/redundant"
-HAREHAB1,,drop,,leaky: answered only after a heart attack (notebook section 7)
-STREHAB1,,drop,,not leakage (stroke comorbidity) but >99% NaN; its gate CVDSTRK3 is kept
-CVDASPRN,,drop,,leaky: answered only after a heart attack (notebook section 7)
-ASPUNSAF,,drop,,leaky: answered only after a heart attack (notebook section 7)
-RLIVPAIN,,drop,,leaky: answered only after a heart attack (notebook section 7)
-RDUCHART,,drop,,leaky: answered only after a heart attack (notebook section 7)
-RDUCSTRK,,drop,,leaky: answered only after a heart attack (notebook section 7)
+HAREHAB1,,drop,,leaky: answered only after a heart attack or a stroke (notebook section 7)
+STREHAB1,,drop,,leaky: answered only after a heart attack or a stroke (notebook section 7)
+CVDASPRN,,drop,,leaky: answered only after a heart attack or a stroke (notebook section 7)
+ASPUNSAF,,drop,,leaky: answered only after a heart attack or a stroke (notebook section 7)
+RLIVPAIN,,drop,,leaky: answered only after a heart attack or a stroke (notebook section 7)
+RDUCHART,,drop,,leaky: answered only after a heart attack or a stroke (notebook section 7)
+RDUCSTRK,,drop,,leaky: answered only after a heart attack or a stroke (notebook section 7)
 ARTTODAY,,drop,,"optional module with >80% NaN, weak/redundant"
 ARTHWGT,,drop,,"optional module with >80% NaN, weak/redundant"
 ARTHEXER,,drop,,"optional module with >80% NaN, weak/redundant"

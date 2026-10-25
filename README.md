@@ -1,7 +1,7 @@
 # CS-433 Project 1: Predicting coronary heart disease (MICHD) from BRFSS 2015
 
 **Team:** _(name, SCIPER, GitHub user, ×3)_
-**AIcrowd team name:** _(team name)_. **Best AIcrowd submission:** _(id)_, F1 0.448, accuracy _(acc.)_
+**AIcrowd team name:** _(team name)_. **Official AIcrowd submission:** _(id)_, F1 0.448, accuracy _(acc.)_
 
 ## Task
 
@@ -15,15 +15,20 @@ disease or myocardial infarction (`_MICHD`, labels in {-1, 1}).
 
 ## Results
 
-| Model | 5-fold CV F1 (mean ± std) |
-|---|---|
-| Regularized logistic regression (`cross_validation.py`) | 0.428 |
-| Gradient boosted trees (`gbm.py`) | 0.435 |
-| Neural network, mean of 10 (`mlp.py`) | 0.433 |
-| **Final: GBM + MLP, top 14% predicted +1** | **0.4359 ± 0.0034** |
+F1 of the positive class. CV: 5-fold stratified cross-validation on the 80%
+development rows (mean ± std); held-out: the other 20% (see Validation).
 
-- Held-out 20% (never used for selection): F1 0.4353.
-- AIcrowd public leaderboard: F1 0.448.
+| Model | CV F1 | Held-out F1 |
+|---|---|---|
+| Least squares / ridge (`implementations.py`) | 0.4216 ± 0.0034 | |
+| Regularized logistic regression (`implementations.py`) | 0.4300 ± 0.0044 | 0.4277 |
+| Gradient boosted trees (`gbm.py`) | 0.4354 ± 0.0032 | 0.4343 |
+| Neural network, mean of 10 (`mlp.py`) | 0.4334 ± 0.0026 | 0.4310 |
+| **Final: GBM + MLP, top 14% predicted +1** | **0.4368 ± 0.0026** | **0.4340** |
+
+- AIcrowd: F1 0.448 (accuracy _(acc.)_).
+- Variant with the leaky questions (not our official model, see below):
+  CV 0.4464 ± 0.0032, held-out 0.4445, AIcrowd F1 0.455, accuracy 0.882.
 
 ## Setup
 
@@ -65,11 +70,19 @@ python run.py                       # = --data_path data/dataset --output submis
 - **Determinism:** every random step has a fixed seed, so the file is
   identical at every run and identical to our best AIcrowd submission.
 
-Cross-validation of the final model (about 25 minutes):
+Cross-validation of the final model (6 trainings of GBM + MLP; our last
+`--holdout` run took about 2 hours with two runs sharing the CPU):
 
 ```bash
 python cv_final.py                  # 5-fold CV on all training rows
 python cv_final.py --holdout        # CV on the 80% dev rows + F1 on the 20% held-out rows
+```
+
+The variant with the leaky questions (see "Leaky questions" below):
+
+```bash
+python run.py --with_leakage        # writes submissions/submission_with_leakage.csv
+python cv_final.py --holdout --with_leakage
 ```
 
 ## Repository structure
@@ -86,9 +99,13 @@ python cv_final.py --holdout        # CV on the 80% dev rows + F1 on the 20% hel
 | `metrics.py` | Accuracy, precision, recall, F1, threshold search |
 | `helpers.py` | Data loading and submission writing, provided by the course (unchanged) |
 | `eda/` | `column_decisions.csv` (kind of each of the 321 columns), `special_codes.json` (per-column codebook rules), `feature_spec.csv` (built by `build_feature_spec.py`, read by `preprocessing.py`) |
-| `notebooks/01_eda.ipynb` | Exploratory data analysis, which generates the figures in `report/figures/` |
-| `tests/` | Unit test: leaky columns never reach the model input (`pytest tests`) |
-| `report/` | 2-page LaTeX report (IEEE template) |
+| `notebooks/01_eda.ipynb` | Exploratory data analysis, which generates most figures in `report/figures/` |
+| `notebooks/02_preprocessing.ipynb` | What the cleaning and the pipeline do, step by step on real rows, and the leaky-column checks |
+| `notebooks/03_experiments.ipynb` | Baselines, model comparison, decision rule, rejected alternatives and the leakage ablation |
+| `experiments/` | `results/*.csv`: the numbers of the long experiments (with their source), `plots.py`: the plots of notebook 03 |
+| `tests/` | Unit tests: leaky columns never reach the clean model input (`pytest tests`) |
+| `report/` | 2-page LaTeX report (IEEE template) and its PDF |
+| `run_public_tests.sh` | Runs the course public tests against this folder |
 
 ## Method
 
@@ -108,12 +125,10 @@ python cv_final.py --holdout        # CV on the 80% dev rows + F1 on the 20% hel
   know / refused".
 - **Dropped columns:** survey administration and design columns, near-empty
   columns and redundant recodes.
-- **Leaky questions:** the questions asked only to people who already had a
-  heart attack (cardiac rehabilitation, aspirin for the heart, ...) are
-  dropped. They are HAREHAB1, CVDASPRN, RDUCHART, RDUCSTRK, RLIVPAIN,
-  ASPUNSAF and STREHAB1. They would raise CV F1 (+0.01) only by leaking the
-  label. `tests/test_preprocessing.py` checks that they never reach the
-  model input.
+- **Leaky questions:** seven questions asked after a cardiac event or about
+  its treatment are dropped from the official model (see "Leaky questions"
+  below). `tests/test_preprocessing.py` checks that they never reach the
+  clean model input.
 
 ### 2. Fitted pipeline (`fit_preprocessor` / `transform`)
 Every statistic is computed on the training rows only, and inside
@@ -145,23 +160,51 @@ The MLP uses this pipeline without interactions (about 130 columns).
   mean logit of 10 networks with different seeds.
 - **Final score:** 0.5·GBM logit + 0.5·MLP logit. The 14% of rows with the
   highest scores are predicted +1. That share maximized F1 in
-  cross-validation, and F1 is flat between 12% and 16%.
+  cross-validation; between 12% and 16% the CV F1 stays within 0.0033 of
+  the peak.
 
 ### 4. Validation
 - **Folds:** stratified 5-fold cross-validation (`cross_validation.build_k_indices`).
   The preprocessor, the target encoding, both models and the decision rule
   are fitted inside each fold.
 - **Hold-out:** a stratified 20% hold-out (`cv_final.holdout_split`, seed
-  2026) was kept aside during model selection and scored only for the final
-  candidates.
+  2026) was kept aside during model selection. It was scored only to check
+  candidates that had already been accepted in CV (14 times in total), never
+  to choose a hyperparameter.
 - **No choices on AIcrowd or on the test set:** no hyperparameter was chosen
   on the AIcrowd leaderboard or on the test set.
 - **Rejected alternatives:** none improved CV F1 by at least 0.001 on 4 of
-  the 5 folds. Details are in the report. They include:
+  the 5 folds (gains below about 0.002 were within seed noise). Details are
+  in the report and in `notebooks/03_experiments.ipynb`. They include:
   - class weights, focal loss, ridge, linear SVM;
   - deeper or bigger trees and networks, refitting on 100% of the rows;
   - feature selection, PCA, extra engineered features and target encodings;
   - stacking, random forest and k-NN members, per-group thresholds.
+
+### 5. Leaky questions (`--with_leakage`)
+Seven questions are asked after a cardiac event or concern its treatment:
+cardiac and stroke rehabilitation (HAREHAB1, STREHAB1) and aspirin use and
+its reasons (CVDASPRN, RDUCHART, RDUCSTRK, RLIVPAIN, ASPUNSAF). Everyone who
+answered HAREHAB1 is positive; for the others the positive rate is 5-36%.
+
+- Adding them improves every model by 0.009 to 0.012 F1, on 5 of 5 folds
+  (nested CV on the dev rows):
+
+  | Model | Clean | With leaky questions |
+  |---|---|---|
+  | Ridge | 0.4210 | 0.4297 |
+  | Regularized logistic | 0.4294 | 0.4414 |
+  | GBM | 0.4330 | 0.4444 |
+  | MLP | 0.4326 | 0.4435 |
+  | GBM + MLP | 0.4366 | 0.4452 |
+
+- HAREHAB1 alone gives about +0.008; the aspirin questions about +0.004 more.
+- **Why the official model excludes them:** the gain depends on the context
+  of use. A screening model is meant for people without a diagnosis, who
+  have never been offered cardiac rehabilitation, so these answers do not
+  exist for them. We report the variant separately (`run.py --with_leakage`,
+  same models, top 13% predicted +1, chosen in CV) to show how much these
+  questions leak.
 
 ## Running the tests
 
