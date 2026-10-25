@@ -42,7 +42,8 @@ DEFAULT_PARAMS = {
 }
 
 # Answers given only by people with a heart history (they leak the label).
-# clean_data already drops them; the guard makes sure they never come back.
+# clean_data already drops them; the guard makes sure they never come back
+# (the leakage variant passes them on purpose, as x_leaky of tree_features).
 LEAKY = [
     "HAREHAB1",
     "CVDASPRN",
@@ -64,7 +65,7 @@ def logistic_loss(y01, f):
     return float(np.mean(np.logaddexp(0.0, f) - y01 * f))
 
 
-def tree_features(xc, names):
+def tree_features(xc, names, x_leaky=None):
     """Input of the trees: the cleaned matrix without the leaky columns.
 
     Trees need no imputation, one-hot encoding or standardization (NaN has
@@ -74,13 +75,19 @@ def tree_features(xc, names):
     Args:
         xc: cleaned matrix (N, D), NaN allowed.
         names: list of the D column names.
+        x_leaky: None (official model), or the tree block of
+            preprocessing.leaky_features (the leakage variant only), put
+            before _STATE.
 
     Returns:
         numpy array (N, D') with _STATE still last.
     """
     assert names[-1] == "_STATE"
     keep = np.array([n not in LEAKY for n in names])
-    return np.asarray(xc)[:, keep]
+    x = np.asarray(xc)[:, keep]
+    if x_leaky is None:
+        return x
+    return np.hstack([x[:, :-1], x_leaky, x[:, -1:]])
 
 
 # ---------------------------------------------------------------- inputs

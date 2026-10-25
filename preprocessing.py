@@ -21,6 +21,8 @@ Pipeline (driven by eda/feature_spec.csv and eda/special_codes.json):
       selection, binary recode, missing indicators, median/mode imputation,
       one-hot encoding, log1p of counts, optional extra features,
       standardization, bias column.
+    * leaky_features (only for the "with leakage" variant): the questions
+      answered only after a heart attack, kept apart from the official model.
 """
 
 import csv
@@ -323,6 +325,63 @@ def clean_data(x_raw, feature_names, spec=None, codes=None, keep_raw=()):
     extra = [x_raw[:, feature_names.index(n)] for n in keep_raw]
     xc = np.column_stack([xc[:, [ix[n] for n in out_names]]] + dk + extra)
     return xc, out_names + [n + "_dk" for n in dk_names] + list(keep_raw)
+
+
+# ----------------------------------------------------------------------
+# Leaky questions: only for the "with leakage" variant (run.py --with_leakage)
+
+# Questions of the optional cardiovascular module that only make sense after
+# a heart attack or a stroke: rehabilitation, and aspirin taken to prevent
+# another attack. In the training data every person who answered HAREHAB1 is
+# positive. They are a consequence of the label rather than a risk factor, and
+# a model used to screen undiagnosed people would not have them. So they are
+# "drop" in the spec and the official model never sees them; the leakage
+# variant adds them only to measure how much they leak (report, ablation).
+LEAKY_COLUMNS = [
+    "HAREHAB1",  # outpatient rehabilitation after the heart attack
+    "STREHAB1",  # outpatient rehabilitation after the stroke
+    "CVDASPRN",  # takes aspirin daily or every other day
+    "RDUCHART",  # aspirin to reduce the chance of a heart attack
+    "RDUCSTRK",  # aspirin to reduce the chance of a stroke
+    "RLIVPAIN",  # aspirin to relieve pain
+    "ASPUNSAF",  # aspirin unsafe: 1 yes, 2 yes (stomach), 3 no
+]
+LEAKY_LEVELS = {"ASPUNSAF": (1, 2, 3)}  # answer codes; the others are 1 yes, 2 no
+
+
+def leaky_features(x_raw, feature_names, codes=None):
+    """Stateless features of the leaky questions (the leakage variant only).
+
+    Args:
+        x_raw: numpy array of shape (N, 321), raw values.
+        feature_names: list of the 321 raw column names.
+        codes: dict from load_special_codes, or None to read CODES_PATH.
+
+    Returns:
+        x_tree, tree_names: for the trees, the 7 answers ("don't know" codes
+            -> NaN, yes 1 / no 0, ASPUNSAF kept 1/2/3) then one "_dk" flag
+            per question; NaN is kept (question not asked).
+        x_flags, flag_names: 0/1 flags for linear models and networks, per
+            question: one per answer, "_dk" and "_nan" (not asked).
+    """
+    codes = load_special_codes() if codes is None else codes
+    answers, dont_knows, flags, flag_names = [], [], [], []
+    for name in LEAKY_COLUMNS:
+        raw = np.asarray(x_raw[:, feature_names.index(name)], dtype=np.float64)
+        levels = LEAKY_LEVELS.get(name, (1, 2))
+        answer = np.where(np.isin(raw, levels), raw, np.nan)
+        if name not in LEAKY_LEVELS:  # yes 1 / no 0
+            answer = np.where(np.isnan(answer), np.nan, (answer == 1) * 1.0)
+        dont_know = np.isin(raw, codes[name]["nan_codes"]) * 1.0
+        answers.append(answer)
+        dont_knows.append(dont_know)
+        flags += [(raw == level) * 1.0 for level in levels]
+        flags += [dont_know, np.isnan(raw) * 1.0]
+        flag_names += ["%s=%d" % (name, level) for level in levels]
+        flag_names += [name + "_dk", name + "_nan"]
+    x_tree = np.column_stack(answers + dont_knows)
+    tree_names = LEAKY_COLUMNS + [n + "_dk" for n in LEAKY_COLUMNS]
+    return x_tree, tree_names, np.column_stack(flags), flag_names
 
 
 # ----------------------------------------------------------------------

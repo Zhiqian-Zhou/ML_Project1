@@ -5,11 +5,12 @@ encoding and both models are fitted on the training folds only, then the
 held-out fold is scored and its top POSITIVE_RATE scores are predicted +1.
 
 Usage:
-    python cv_final.py [--data_path data/dataset] [--holdout]
+    python cv_final.py [--data_path data/dataset] [--holdout] [--with_leakage]
                        [--n_rows N] [--k_fold 5]
 --holdout: cross-validate on the 80% dev rows of holdout_split, then train on
     them and report the F1 on the 20% held-out rows (model selection used
     the CV only; the held-out rows were scored once per final candidate);
+--with_leakage: the variant with the leaky questions (see run.py);
 --n_rows: only the first N rows (quick check).
 """
 
@@ -19,13 +20,10 @@ import time
 
 import numpy as np
 
-import gbm
-import mlp
 from cross_validation import build_k_indices, fold_split
 from metrics import precision_recall_f1, predict_labels
-from preprocessing import clean_data, fit_preprocessor, load_data_cached
-from preprocessing import load_feature_names, transform
-from run import HERE, MLP_CONFIG, POSITIVE_RATE
+from preprocessing import load_data_cached, load_feature_names
+from run import HERE, POSITIVE_RATE, ensemble_scores, model_inputs
 
 
 def parse_args():
@@ -33,6 +31,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data_path", default=os.path.join(HERE, "data", "dataset"))
     parser.add_argument("--holdout", action="store_true")
+    parser.add_argument("--with_leakage", action="store_true")
     parser.add_argument("--n_rows", type=int, default=None)
     parser.add_argument("--k_fold", type=int, default=5)
     return parser.parse_args()
@@ -58,16 +57,13 @@ def f1_top_rate(y, scores):
     return precision_recall_f1(y, y_pred)
 
 
-def final_scores(y_tr, xc_tr, xc_te, names, k):
-    """Train both models on the training fold, return the held-out scores."""
-    params = {"seed": gbm.DEFAULT_PARAMS["seed"] + k}  # other split per fold
-    model = gbm.train(y_tr, gbm.tree_features(xc_tr, names), params)
-    s_gbm = gbm.score(model, gbm.tree_features(xc_te, names))
-    # the MLP input has no _STATE column (last column of xc)
-    state = fit_preprocessor(xc_tr[:, :-1], names[:-1], MLP_CONFIG, y=y_tr)
-    model = mlp.train(y_tr, transform(xc_tr[:, :-1], state))
-    s_mlp = mlp.score(model, transform(xc_te[:, :-1], state))
-    return 0.5 * s_gbm + 0.5 * s_mlp
+def fold_scores(y, xc, names, leaky, tr, te, k):
+    """Train on the rows tr (run.ensemble_scores), return the scores of the rows te."""
+    leaky_tr = leaky_te = None
+    if leaky is not None:
+        leaky_tr = tuple(block[tr] for block in leaky)
+        leaky_te = tuple(block[te] for block in leaky)
+    return ensemble_scores(y[tr], xc[tr], xc[te], names, leaky_tr, leaky_te, seed=k)
 
 
 def main():
@@ -75,28 +71,26 @@ def main():
     args = parse_args()
     t0 = time.time()
     x, _, y, _, _ = load_data_cached(args.data_path)
-    xc, names = clean_data(
-        x[: args.n_rows], load_feature_names(args.data_path), keep_raw=("_STATE",)
-    )
+    names = load_feature_names(args.data_path)
+    xc, xc_names, leaky = model_inputs(x[: args.n_rows], names, args.with_leakage)
     y = y[: args.n_rows]
     del x
+    rows = np.arange(len(y))
     if args.holdout:
-        dev, hold = holdout_split(y)
-        xc_hold, y_hold = xc[hold], y[hold]
-        xc, y = xc[dev], y[dev]
-    k_indices = build_k_indices(y, args.k_fold, 42)
+        rows, hold = holdout_split(y)
+    k_indices = build_k_indices(y[rows], args.k_fold, 42)
     f1s = []
     for k in range(args.k_fold):
-        tr, te = fold_split(k_indices, k)
-        scores = final_scores(y[tr], xc[tr], xc[te], names, k)
+        tr, te = (rows[i] for i in fold_split(k_indices, k))
+        scores = fold_scores(y, xc, xc_names, leaky, tr, te, k)
         p, r, f1 = f1_top_rate(y[te], scores)
         f1s.append(f1)
         print(f"fold {k}: F1 {f1:.4f} (P {p:.3f}, R {r:.3f}) [{time.time() - t0:.0f}s]")
-    print(f"CV F1 {np.mean(f1s):.4f} +/- {np.std(f1s):.4f} on {len(y)} rows")
+    print(f"CV F1 {np.mean(f1s):.4f} +/- {np.std(f1s):.4f} on {len(rows)} rows")
     if args.holdout:
-        scores = final_scores(y, xc, xc_hold, names, args.k_fold)
-        p, r, f1 = f1_top_rate(y_hold, scores)
-        print(f"held-out F1 {f1:.4f} (P {p:.3f}, R {r:.3f}) on {len(y_hold)} rows")
+        scores = fold_scores(y, xc, xc_names, leaky, rows, hold, args.k_fold)
+        p, r, f1 = f1_top_rate(y[hold], scores)
+        print(f"held-out F1 {f1:.4f} (P {p:.3f}, R {r:.3f}) on {len(hold)} rows")
 
 
 if __name__ == "__main__":
