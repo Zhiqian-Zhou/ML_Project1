@@ -23,7 +23,8 @@ import numpy as np
 from cross_validation import build_k_indices, fold_split
 from metrics import precision_recall_f1, predict_labels
 from preprocessing import load_data_cached, load_feature_names
-from run import HERE, POSITIVE_RATE, ensemble_scores, model_inputs
+from run import HERE, LEAKY_POSITIVE_RATE, POSITIVE_RATE
+from run import ensemble_scores, model_inputs
 
 
 def parse_args():
@@ -51,9 +52,9 @@ def holdout_split(y, frac=0.2, seed=2026):
     return np.setdiff1d(np.arange(len(y)), hold), hold
 
 
-def f1_top_rate(y, scores):
-    """F1 when the top POSITIVE_RATE scores are predicted +1."""
-    y_pred = predict_labels(scores, np.quantile(scores, 1 - POSITIVE_RATE))
+def f1_top_rate(y, scores, rate):
+    """F1 when the top `rate` share of the scores is predicted +1."""
+    y_pred = predict_labels(scores, np.quantile(scores, 1 - rate))
     return precision_recall_f1(y, y_pred)
 
 
@@ -78,18 +79,19 @@ def main():
     rows = np.arange(len(y))
     if args.holdout:
         rows, hold = holdout_split(y)
+    rate = LEAKY_POSITIVE_RATE if args.with_leakage else POSITIVE_RATE
     k_indices = build_k_indices(y[rows], args.k_fold, 42)
     f1s = []
     for k in range(args.k_fold):
         tr, te = (rows[i] for i in fold_split(k_indices, k))
         scores = fold_scores(y, xc, xc_names, leaky, tr, te, k)
-        p, r, f1 = f1_top_rate(y[te], scores)
+        p, r, f1 = f1_top_rate(y[te], scores, rate)
         f1s.append(f1)
         print(f"fold {k}: F1 {f1:.4f} (P {p:.3f}, R {r:.3f}) [{time.time() - t0:.0f}s]")
     print(f"CV F1 {np.mean(f1s):.4f} +/- {np.std(f1s):.4f} on {len(rows)} rows")
     if args.holdout:
         scores = fold_scores(y, xc, xc_names, leaky, rows, hold, args.k_fold)
-        p, r, f1 = f1_top_rate(y[hold], scores)
+        p, r, f1 = f1_top_rate(y[hold], scores, rate)
         print(f"held-out F1 {f1:.4f} (P {p:.3f}, R {r:.3f}) on {len(hold)} rows")
 
 

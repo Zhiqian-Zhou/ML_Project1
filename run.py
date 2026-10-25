@@ -13,7 +13,8 @@ Every random step uses a fixed seed, so the csv is the same at every run.
 --with_leakage: the variant that also uses the leaky questions, which are
 answered only after a heart attack (preprocessing.LEAKY_COLUMNS). It shows
 how much they leak; it is not our model, because these answers do not exist
-for the undiagnosed people a screening model is meant for.
+for the undiagnosed people a screening model is meant for. Same models and
+parameters; only the predicted share is 13% (chosen in cross-validation).
 
 Usage (the default paths are relative to this file):
     python run.py [--data_path data/dataset] [--output submissions/submission.csv]
@@ -43,6 +44,7 @@ from preprocessing import (
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 POSITIVE_RATE = 0.14  # share of test rows predicted +1
+LEAKY_POSITIVE_RATE = 0.13  # the same with the leaky questions
 MLP_CONFIG = {"interactions": False}  # preprocessing options of the MLP input
 
 
@@ -130,7 +132,8 @@ def main():
     log(t0, "GBM and MLP trained")
 
     # 3. Predict +1 for the top POSITIVE_RATE of the averaged logits.
-    y_pred = predict_labels(scores, np.quantile(scores, 1 - POSITIVE_RATE))
+    rate = LEAKY_POSITIVE_RATE if args.with_leakage else POSITIVE_RATE
+    y_pred = predict_labels(scores, np.quantile(scores, 1 - rate))
     log(t0, f"Predicted positives: {np.mean(y_pred == 1):.2%}")
 
     # 4. Write the submission csv (Id, Prediction).
