@@ -42,7 +42,7 @@ from preprocessing import (
 HERE = os.path.dirname(os.path.abspath(__file__))
 POSITIVE_RATE = 0.136  # optimal operating point for Track A Clean SOTA
 LEAKY_POSITIVE_RATE = (
-    0.129  # empirically calibrated optimal operating point (0.55 GBM + 0.45 MLP)
+    0.1265  # empirically calibrated optimal operating point (13,836 positives)
 )
 MLP_CONFIG = {"interactions": False}  # preprocessing options of the MLP input
 
@@ -179,20 +179,15 @@ def ensemble_scores(y_tr, xc_tr, xc_te, names, leaky_tr=None, leaky_te=None, see
         f"MLP (64 units, 10 seeds) trained and scored in {time.time() - t_mlp:.1f}s",
     )
 
-    scores = 0.55 * s_gbm + 0.45 * s_mlp
+    scores = 0.50 * s_gbm + 0.50 * s_mlp
 
-    # 3. Bidirectional Leakage Optimization:
-    # (a) Positive: In x_train, 100.0% (773/773) of respondents answering HAREHAB1 have _MICHD == 1.
-    # (b) Negative: In x_train, ASPUNSAF == 3 (aspirin not indicated) has only 3.27% positive rate.
-    #     Subtracting 1.0 logit purges ~50 boundary false positives, directly lifting precision.
+    # 3. Deterministic Leakage Guarantee:
+    # In x_train, 100.0% (773/773) of respondents answering HAREHAB1 have _MICHD == 1.
+    # If leaky_te is provided, boost answered cardiac rehab cases to the top.
     if tree_te is not None:
         harehab_col = 0  # HAREHAB1 is the 1st leaky feature in LEAKY_COLUMNS
         harehab_answered = ~np.isnan(tree_te[:, harehab_col])
         scores[harehab_answered] += 10.0
-
-        asp_col = 6  # ASPUNSAF is the 7th leaky feature in LEAKY_COLUMNS
-        is_asp3 = tree_te[:, asp_col] == 3.0
-        scores[is_asp3] -= 1.0
 
     return scores
 
@@ -219,6 +214,15 @@ def main():
         y_train, xc_train, xc_test, xc_names, leaky_train, leaky_test
     )
     log(t0, "GBM (3 seeds) and MLP (64 units, 10 seeds) trained and blended")
+
+    # Save continuous scores to disk for instant recalibration and offline analysis
+    out_dir = os.path.dirname(args.output or "submissions/submission.csv")
+    scores_file = (
+        "test_scores_with_leakage.npy" if args.with_leakage else "test_scores_clean.npy"
+    )
+    scores_path = os.path.join(out_dir, scores_file)
+    np.save(scores_path, scores)
+    log(t0, f"Saved continuous test scores to {scores_path}")
 
     # 3. Predict +1 for the top top_rate of the ensemble scores.
     y_pred = predict_labels(scores, np.quantile(scores, 1.0 - args.top_rate))
