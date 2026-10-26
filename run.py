@@ -42,7 +42,7 @@ from preprocessing import (
 HERE = os.path.dirname(os.path.abspath(__file__))
 POSITIVE_RATE = 0.136  # optimal operating point for Track A Clean SOTA
 LEAKY_POSITIVE_RATE = (
-    0.1265  # empirically calibrated optimal operating point (13,836 positives)
+    0.128  # optimal operating point for Track B Leaderboard (0.457 F1)
 )
 MLP_CONFIG = {"interactions": False}  # preprocessing options of the MLP input
 
