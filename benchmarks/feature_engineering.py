@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 """Hypothesis-driven feature engineering for the CDC BRFSS 2015 dataset.
 
 Implements high-signal, streamlined feature transformations:

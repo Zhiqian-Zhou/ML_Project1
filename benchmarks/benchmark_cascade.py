@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 """Milestone 6.6: 5-Fold Stratified Cross-Validation Benchmark for 233-Dimensional Feature Space.
 
 Compares:

@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 """Milestone 6: 5-Fold Stratified Cross-Validation Benchmark for Super Tri-Blend.
 
 Evaluates the 223-dimensional feature space combining:

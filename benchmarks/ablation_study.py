@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 """Progressive Feature Engineering Ablation Study (Milestone 4).
 
 Generates the complete quantitative evaluation for Table 2 of the final report:

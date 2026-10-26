@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 """Comprehensive 5-Fold Stratified Cross-Validation Benchmark for 4 Bold Hypotheses.
 
 Hypothesis A: Empirical Bayesian Log-Odds Encoding (WoE)

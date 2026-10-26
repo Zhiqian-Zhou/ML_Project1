@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 """Empirical validation of baseline models on CDC BRFSS 2015 dataset.
 
 Evaluates 5-fold stratified cross-validation performance across:

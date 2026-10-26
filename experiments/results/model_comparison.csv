@@ -1,0 +1,8 @@
+model,family,cv_f1_mean,cv_f1_std,holdout_f1,source
+Least squares / ridge / MSE GD,baseline,0.4216,0.0034,,"report_baselines/run.log (v2 pipeline, top 14%)"
+MSE SGD (not converged),baseline,0.3853,0.0085,,"report_baselines/run.log (v2 pipeline, top 14%)"
+Logistic GD,baseline,0.4302,0.0047,,"report_baselines/run.log (v2 pipeline, top 14%)"
+Reg. logistic GD,baseline,0.4300,0.0044,0.4277,"report_baselines/run.log (v2 pipeline, top 14%); held-out: models/ITERATIONS.md, Iteration 2"
+MLP 1x64 (10 seeds),neural net,0.4334,0.0026,0.4310,"models/ITERATIONS.md, Iteration 2 - CLOSED"
+GBM d5 + _STATE target enc.,trees,0.4354,0.0032,0.4343,"models/ITERATIONS.md, Iteration 3 - CLOSED"
+GBM+MLP mean logit (top 14%),ensemble,0.4368,0.0026,0.4340,"final/cv_holdout_clean.log (cv_final.py --holdout)"

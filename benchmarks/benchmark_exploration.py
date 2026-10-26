@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 """Micro-benchmark exploration script to empirically validate Hypotheses 1-4.
 
 Strictly pure Python standard library + NumPy only.

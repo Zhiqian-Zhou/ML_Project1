@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 """Milestone 6.7: Non-Linear & Probability Calibration 5-Fold Stratified Cross-Validation Benchmark.
 
 Evaluates on the 233-dimensional feature space:

@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 """Cost-Sensitive / Class-Weighted Benchmark on Streamlined Feature Space (205 Dims).
 
 Evaluates 5-fold stratified cross-validation performance across:
