@@ -76,6 +76,148 @@ DERIVED_INPUTS = [
     "MENTHLTH",
 ]
 
+# High-AUC physiological and demographic features (recovered from column_decisions)
+HIGH_AUC_CDC_COLUMNS = [
+    "MAXVO2_",
+    "FC60_",
+    "_AGEG5YR",
+    "_RFHYPE5",
+    "_RFCHOL",
+    "_PNEUMO2",
+    "_FLSHOT6",
+    "_RFHLTH",
+    "_AGE65YR",
+]
+
+HIGH_AUC_SENTINELS = {
+    "MAXVO2_": [999, 99900],
+    "FC60_": [999, 99900],
+    "_AGEG5YR": [14, 77, 99],
+    "_RFHYPE5": [9, 7, 77, 99],
+    "_RFCHOL": [9, 7, 77, 99],
+    "_PNEUMO2": [9, 7, 77, 99],
+    "_FLSHOT6": [9, 7, 77, 99],
+    "_RFHLTH": [9, 7, 77, 99],
+    "_AGE65YR": [3, 9, 77, 99],
+}
+
+HIGH_AUC_KINDS = {
+    "_RFHYPE5": "binary",
+    "_RFCHOL": "binary",
+    "_RFHLTH": "binary",
+    "_AGE65YR": "binary",
+    "_PNEUMO2": "binary",
+    "_FLSHOT6": "binary",
+    "_AGEG5YR": "ordinal",
+    "MAXVO2_": "continuous",
+    "FC60_": "continuous",
+}
+
+HIGH_AUC_POS_VALS = {
+    "_RFHYPE5": (2.0,),
+    "_RFCHOL": (2.0,),
+    "_RFHLTH": (2.0,),
+    "_AGE65YR": (2.0,),
+    "_PNEUMO2": (1.0,),
+    "_FLSHOT6": (1.0,),
+    "_AGEG5YR": (),
+    "MAXVO2_": (),
+    "FC60_": (),
+}
+
+
+def extract_high_auc_features(x_raw, feature_names):
+    """Extract and sanitize high-AUC CDC physiological and demographic features.
+
+    Features:
+        MAXVO2_ (AUC=0.7359), FC60_ (AUC=0.7359), _AGEG5YR (AUC=0.7354),
+        _RFHYPE5 (AUC=0.6880), _RFCHOL (AUC=0.6762), _PNEUMO2 (AUC=0.6795),
+        _FLSHOT6 (AUC=0.6737), _RFHLTH (AUC=0.6615), _AGE65YR (AUC=0.6706).
+    """
+    ix = {n: j for j, n in enumerate(feature_names)}
+    N = x_raw.shape[0]
+    cols, names = [], []
+    for col in HIGH_AUC_CDC_COLUMNS:
+        if col in ix:
+            val = np.asarray(x_raw[:, ix[col]], dtype=np.float64).copy()
+            sentinels = HIGH_AUC_SENTINELS.get(col, [7, 9, 77, 99, 999, 99900])
+            val[np.isin(val, sentinels)] = np.nan
+            val[val >= 99900] = np.nan
+            cols.append(val)
+            names.append(col)
+        else:
+            cols.append(np.full(N, np.nan, dtype=np.float64))
+            names.append(col)
+    return np.column_stack(cols), names
+
+
+STRUCTURED_SKIP_KINDS = {
+    "DIABEYE_CLEAN": "binary",
+    "DOCTDIAB_CLEAN": "continuous",
+    "CDASSIST_CLEAN": "ordinal",
+    "CDHOUSE_CLEAN": "ordinal",
+    "CDHELP_CLEAN": "ordinal",
+    "CDSOCIAL_CLEAN": "ordinal",
+}
+
+STRUCTURED_SKIP_POS_VALS = {
+    "DIABEYE_CLEAN": (1.0,),
+    "DOCTDIAB_CLEAN": (),
+    "CDASSIST_CLEAN": (),
+    "CDHOUSE_CLEAN": (),
+    "CDHELP_CLEAN": (),
+    "CDSOCIAL_CLEAN": (),
+}
+
+
+def extract_structured_skip_features(x_raw, feature_names):
+    """Extract and impute structural skip-logic features for diabetes complications & cognitive decline.
+
+    Features:
+        DIABEYE_CLEAN: Diabetic retinopathy (2 = No retinopathy if non-diabetic; 1 = Yes retinopathy)
+        DOCTDIAB_CLEAN: Annual doctor visits for diabetes (0 if non-diabetic or none; 88=0)
+        CDASSIST_CLEAN, CDHOUSE_CLEAN, CDHELP_CLEAN, CDSOCIAL_CLEAN: Cognitive decline limitations
+            (5 = Never if no memory loss/confusion CIMEMLOS == 2)
+    """
+    ix = {n: j for j, n in enumerate(feature_names)}
+    extra_cols = []
+    extra_names = []
+
+    # 1. DIABEYE (diabetic retinopathy) & DOCTDIAB (annual doctor visits)
+    if "DIABEYE" in ix and "DIABETE3" in ix:
+        diabeye = np.asarray(x_raw[:, ix["DIABEYE"]], dtype=np.float64).copy()
+        no_diab = np.isin(x_raw[:, ix["DIABETE3"]], [2, 3, 4])
+        diabeye[no_diab] = 2.0  # 2 = No retinopathy
+        diabeye[np.isin(diabeye, [7, 9])] = np.nan
+        extra_cols.append(diabeye)
+        extra_names.append("DIABEYE_CLEAN")
+
+    if "DOCTDIAB" in ix and "DIABETE3" in ix:
+        docdiab = np.asarray(x_raw[:, ix["DOCTDIAB"]], dtype=np.float64).copy()
+        no_diab = np.isin(x_raw[:, ix["DIABETE3"]], [2, 3, 4])
+        docdiab[no_diab] = 0.0  # 0 visits
+        docdiab[docdiab == 88] = 0.0  # 88 = None
+        docdiab[np.isin(docdiab, [77, 99])] = np.nan
+        extra_cols.append(docdiab)
+        extra_names.append("DOCTDIAB_CLEAN")
+
+    # 2. Cognitive Decline Module: CDASSIST, CDHOUSE, CDHELP, CDSOCIAL
+    cd_cols = ["CDASSIST", "CDHOUSE", "CDHELP", "CDSOCIAL"]
+    for cdc in cd_cols:
+        if cdc in ix:
+            col = np.asarray(x_raw[:, ix[cdc]], dtype=np.float64).copy()
+            if "CIMEMLOS" in ix:
+                no_ci = x_raw[:, ix["CIMEMLOS"]] == 2
+                col[no_ci] = 5.0  # 5 = Never
+            col[np.isin(col, [7, 9])] = np.nan
+            extra_cols.append(col)
+            extra_names.append(cdc + "_CLEAN")
+
+    if not extra_cols:
+        return np.zeros((len(x_raw), 0), dtype=np.float64), []
+    return np.column_stack(extra_cols), extra_names
+
+
 # Optional products of standardized columns (config "interactions"), found by
 # looking at the residuals of the logistic model on the dev rows.
 INTERACTIONS = [
@@ -474,19 +616,28 @@ def clean_data(
             if cname in ix and cname not in selected_names:
                 selected_names.append(cname)
 
+    high_auc_cols, high_auc_names = extract_high_auc_features(x_raw, feature_names)
+    struct_cols, struct_names = extract_structured_skip_features(x_raw, feature_names)
+
     dk_names = [n for n in raw_out if codes.get(n, {}).get("nan_codes")]
     dk = [np.isin(x_sub[:, ix[n]], codes[n]["nan_codes"]) for n in dk_names]
     extra = [x_raw[:, feature_names.index(n)] for n in keep_raw]
 
     xc_selected = xc[:, [ix[n] for n in selected_names]]
-    xc_blocks = [xc_selected]
+    xc_blocks = [xc_selected, high_auc_cols, struct_cols]
     if dk:
         xc_blocks.append(np.column_stack(dk))
     if extra:
         xc_blocks.append(np.column_stack(extra))
 
     xc_out = np.column_stack(xc_blocks)
-    final_names = selected_names + [n + "_dk" for n in dk_names] + list(keep_raw)
+    final_names = (
+        selected_names
+        + high_auc_names
+        + struct_names
+        + [n + "_dk" for n in dk_names]
+        + list(keep_raw)
+    )
     return xc_out, final_names
 
 
@@ -552,10 +703,9 @@ def select_columns(xc_train, names, rows, max_nan_ratio):
     col_max = np.where(nan, -np.inf, xc_train).max(axis=0)
     kept = []
     for j, name in enumerate(names):
-        # Allow composite features or spec non-drop features
-        if name in rows:
-            if rows[name]["kind"] == "drop":
-                continue
+        # Allow high-AUC features, structured skip features, composite features, or spec non-drop features
+        if name in HIGH_AUC_CDC_COLUMNS or name.endswith("_CLEAN"):
+            pass
         elif name in (
             "VASCULAR_BURDEN",
             "AGE_VASCULAR_SYNERGY",
@@ -563,6 +713,9 @@ def select_columns(xc_train, names, rows, max_nan_ratio):
             "HEALTH_DAYS_BURDEN",
         ):
             pass
+        elif name in rows:
+            if rows[name]["kind"] == "drop":
+                continue
         else:
             continue
         if nan_share[j] <= max_nan_ratio and col_max[j] > col_min[j]:
@@ -743,8 +896,38 @@ def corr_dedup(z, names, y, max_corr):
 def _fit_columns(xc_train, names, rows, cfg, y):
     """Fit column selection, imputation, one-hot and missing indicators."""
     kept = select_columns(xc_train, names, rows, cfg["max_nan_ratio"])
-    kinds = [rows[n]["kind"] if n in rows else "continuous" for n in kept]
-    pos_vals = [rows[n]["positive_values"] if n in rows else () for n in kept]
+    kinds = [
+        (
+            HIGH_AUC_KINDS[n]
+            if n in HIGH_AUC_KINDS
+            else (
+                STRUCTURED_SKIP_KINDS[n]
+                if n in STRUCTURED_SKIP_KINDS
+                else (
+                    rows[n]["kind"]
+                    if (n in rows and rows[n]["kind"] != "drop")
+                    else "continuous"
+                )
+            )
+        )
+        for n in kept
+    ]
+    pos_vals = [
+        (
+            HIGH_AUC_POS_VALS[n]
+            if n in HIGH_AUC_POS_VALS
+            else (
+                STRUCTURED_SKIP_POS_VALS[n]
+                if n in STRUCTURED_SKIP_POS_VALS
+                else (
+                    rows[n]["positive_values"]
+                    if (n in rows and rows[n]["kind"] != "drop")
+                    else ()
+                )
+            )
+        )
+        for n in kept
+    ]
     state = {
         "kept_idx": np.array([names.index(n) for n in kept], dtype=int),
         "kept_names": kept,

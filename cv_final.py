@@ -23,7 +23,7 @@ import numpy as np
 from cross_validation import build_k_indices, fold_split
 from metrics import precision_recall_f1, predict_labels
 from preprocessing import load_data_cached, load_feature_names
-from run import HERE, POSITIVE_RATE, ensemble_scores, model_inputs
+from run import HERE, LEAKY_POSITIVE_RATE, POSITIVE_RATE, ensemble_scores, model_inputs
 
 
 def parse_args():
@@ -34,8 +34,11 @@ def parse_args():
     parser.add_argument("--with_leakage", action="store_true")
     parser.add_argument("--n_rows", type=int, default=None)
     parser.add_argument("--k_fold", type=int, default=5)
-    parser.add_argument("--top_rate", type=float, default=POSITIVE_RATE)
-    return parser.parse_args()
+    parser.add_argument("--top_rate", type=float, default=None)
+    args = parser.parse_args()
+    if args.top_rate is None:
+        args.top_rate = LEAKY_POSITIVE_RATE if args.with_leakage else POSITIVE_RATE
+    return args
 
 
 def holdout_split(y, frac=0.2, seed=2026):
@@ -79,21 +82,22 @@ def main():
     rows = np.arange(len(y))
     if args.holdout:
         rows, hold = holdout_split(y)
-    k_indices = build_k_indices(y[rows], args.k_fold, 42)
-    f1s = []
-    for k in range(args.k_fold):
-        tr, te = (rows[i] for i in fold_split(k_indices, k))
-        scores = fold_scores(y, xc, xc_names, leaky, tr, te, k)
-        p, r, f1 = f1_top_rate(y[te], scores, args.top_rate)
-        f1s.append(f1)
+    if args.k_fold > 0:
+        k_indices = build_k_indices(y[rows], args.k_fold, 42)
+        f1s = []
+        for k in range(args.k_fold):
+            tr, te = (rows[i] for i in fold_split(k_indices, k))
+            scores = fold_scores(y, xc, xc_names, leaky, tr, te, k)
+            p, r, f1 = f1_top_rate(y[te], scores, args.top_rate)
+            f1s.append(f1)
+            print(
+                f"fold {k}: F1 {f1:.4f} (P {p:.3f}, R {r:.3f}) [{time.time() - t0:.0f}s]",
+                flush=True,
+            )
         print(
-            f"fold {k}: F1 {f1:.4f} (P {p:.3f}, R {r:.3f}) [{time.time() - t0:.0f}s]",
+            f"CV F1 {np.mean(f1s):.4f} +/- {np.std(f1s):.4f} on {len(rows)} rows (top_rate={args.top_rate:.1%})",
             flush=True,
         )
-    print(
-        f"CV F1 {np.mean(f1s):.4f} +/- {np.std(f1s):.4f} on {len(rows)} rows (top_rate={args.top_rate:.1%})",
-        flush=True,
-    )
     if args.holdout:
         scores = fold_scores(y, xc, xc_names, leaky, rows, hold, args.k_fold)
         p, r, f1 = f1_top_rate(y[hold], scores, args.top_rate)

@@ -27,7 +27,7 @@ DEFAULT_PARAMS = {
     "n_trees": 1500,  # maximum number of boosting rounds
     "learning_rate": 0.05,  # shrinkage of every tree
     "max_depth": 5,  # depth of each tree (at most 2**max_depth leaves)
-    "min_leaf": 200,  # min number of rows in a leaf
+    "min_leaf": 50,  # min number of rows in a leaf (50 allows isolating high-purity clinical clusters)
     "min_hessian": 1.0,  # min sum of h in a leaf
     "l2": 5.0,  # L2 penalty on the leaf values
     "min_gain": 0.0,  # min loss decrease to split a node
@@ -39,7 +39,7 @@ DEFAULT_PARAMS = {
     "target_enc_last": 100,  # smoothing m of the target encoding of the last
     # column (the state code _STATE)
     "seed": 42,
-    "w_pos": 2.0,  # cost-sensitive positive class weight (validated: +0.0061 F1 lift)
+    "w_pos": 1.0,  # unweighted logistic loss (optimal for histogram boosting with top-percentile selection)
 }
 
 # Answers given only by people with a heart history (they leak the label).

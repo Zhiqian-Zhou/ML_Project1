@@ -16,7 +16,7 @@ Link with the course (lecture on neural networks):
 import numpy as np
 
 DEFAULT_PARAMS = {
-    "hidden": [64],  # sizes of the hidden layers
+    "hidden": [64],  # sizes of the hidden layers (single robust layer)
     "lr": 1e-3,  # Adam step size
     "batch_size": 512,
     "max_epochs": 40,
@@ -178,8 +178,10 @@ def train(y, tx, params=None):
     rng = np.random.default_rng(p["seed"])
     tr, va = stratified_split(y, p["val_frac"], rng)
     y01 = (y == 1).astype(np.float32)
+    x_tr, x_va = tx[tr], tx[va]
+    y_tr01, y_va01 = y01[tr], y01[va]
     nets = [
-        train_one(y01[tr], tx[tr], tx[va], y01[va], p, p["seed"] + s)
+        train_one(y_tr01, x_tr, x_va, y_va01, p, p["seed"] + s)
         for s in range(p["n_seeds"])
     ]
     return {"nets": nets}
