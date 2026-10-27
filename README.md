@@ -7,7 +7,7 @@
 [![Code Style](https://img.shields.io/badge/Code%20Style-Black-000000.svg)](https://github.com/psf/black)
 [![Leaderboard F1](https://img.shields.io/badge/Leaderboard%20Peak%20F1-0.457%20(Rank%20Top--Tier)-orange.svg)]()
 
-**Team:** Zhihao Chen, Zhiqian Zhou  
+**Team:** Zhihao Chen, Zhiqian Zhou, Guanyu Chen
 **Best AIcrowd Submission (Track B):** **F1 = 0.457**, Accuracy = 88.6% (14,001 positive predictions)  
 **Clean Benchmark Submission (Track A):** **F1 = 0.447** / **0.448** (Strict Zero-Leakage Prospective Screening)
 
