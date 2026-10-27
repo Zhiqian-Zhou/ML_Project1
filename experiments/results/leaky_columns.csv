@@ -1,0 +1,8 @@
+column,lr_all_minus_col_nested,delta_vs_leaky_all,won_vs_all,lr_clean_plus_col_nested,delta_vs_clean,won_vs_clean,source
+HAREHAB1,0.4311,-0.0103,0/5,0.4376,0.0082,5/5,"loop3/w3/REPORT.txt, Leaky-column ablation"
+STREHAB1,0.4411,-0.0003,1/5,0.4293,-0.0000,3/5,"loop3/w3/REPORT.txt, Leaky-column ablation"
+CVDASPRN,0.4414,0.0000,2/5,0.4307,0.0013,5/5,"loop3/w3/REPORT.txt, Leaky-column ablation"
+RDUCHART,0.4414,0.0000,2/5,0.4301,0.0007,4/5,"loop3/w3/REPORT.txt, Leaky-column ablation"
+RDUCSTRK,0.4413,-0.0001,1/5,0.4298,0.0004,3/5,"loop3/w3/REPORT.txt, Leaky-column ablation"
+RLIVPAIN,0.4415,0.0001,3/5,0.4298,0.0004,3/5,"loop3/w3/REPORT.txt, Leaky-column ablation"
+ASPUNSAF,0.4410,-0.0004,2/5,0.4302,0.0008,5/5,"loop3/w3/REPORT.txt, Leaky-column ablation"

@@ -1,0 +1,68 @@
+{
+  "n_rows": 328135,
+  "seed": 42,
+  "k_folds": 5,
+  "max_iters": 300,
+  "results": {
+    "dummy": {
+      "accuracy_mean": 0.9116979292059672,
+      "accuracy_std": 1.1102230246251565e-16,
+      "precision_mean": 0.0,
+      "precision_std": 0.0,
+      "recall_mean": 0.0,
+      "recall_std": 0.0,
+      "f1_mean": 0.0,
+      "f1_std": 0.0,
+      "balanced_accuracy_mean": 0.5,
+      "balanced_accuracy_std": 0.0
+    },
+    "ridge_default": {
+      "accuracy_mean": 0.9139744312554283,
+      "accuracy_std": 0.0002817272707616014,
+      "precision_mean": 0.6430547277726586,
+      "precision_std": 0.019692987410480048,
+      "recall_mean": 0.05805004314063848,
+      "recall_std": 0.0017953141402781644,
+      "f1_mean": 0.10647860428542592,
+      "f1_std": 0.0031476814274064347,
+      "balanced_accuracy_mean": 0.5274623126520146,
+      "balanced_accuracy_std": 0.0009149914637865126
+    },
+    "ridge_tuned": {
+      "accuracy_mean": 0.8720557087783991,
+      "accuracy_std": 0.0013595382800891116,
+      "precision_mean": 0.35005274483517057,
+      "precision_std": 0.0023029717605850897,
+      "recall_mean": 0.523899913718723,
+      "recall_std": 0.011527901895645464,
+      "f1_mean": 0.4196272296362421,
+      "f1_std": 0.003712583929275957,
+      "balanced_accuracy_mean": 0.7148380435019608,
+      "balanced_accuracy_std": 0.004649040485412416
+    },
+    "logistic_default": {
+      "accuracy_mean": 0.9145199384399714,
+      "accuracy_std": 0.0003648641082836113,
+      "precision_mean": 0.5683193412800273,
+      "precision_std": 0.010328014908320257,
+      "recall_mean": 0.13335634167385677,
+      "recall_std": 0.0024143961942906167,
+      "f1_mean": 0.21599349458890274,
+      "f1_std": 0.0029957159163824594,
+      "balanced_accuracy_mean": 0.561767755005935,
+      "balanced_accuracy_std": 0.0010637833939732958
+    },
+    "logistic_tuned": {
+      "accuracy_mean": 0.8668200588172551,
+      "accuracy_std": 0.0033763976918345794,
+      "precision_mean": 0.3422783708446459,
+      "precision_std": 0.006216800502692625,
+      "recall_mean": 0.5503710094909404,
+      "recall_std": 0.015067626251437712,
+      "f1_mean": 0.421899046384541,
+      "f1_std": 0.0038759826660198313,
+      "balanced_accuracy_mean": 0.7239202954928963,
+      "balanced_accuracy_std": 0.005386536199305273
+    }
+  }
+}

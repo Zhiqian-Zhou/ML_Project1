@@ -1,0 +1,33 @@
+{
+  "execution_method": "Every code cell executed sequentially in a fresh isolated IPython process per notebook; Jupyter socket transport unavailable in runner.",
+  "notebooks": [
+    {
+      "name": "01_eda.ipynb",
+      "status": "passed",
+      "data": "328135 training rows, 109379 test rows; original analysis budgets",
+      "seconds": 42.9
+    },
+    {
+      "name": "02_experiments.ipynb",
+      "status": "passed",
+      "data": "10000 seeded random training rows, five folds, 300 logistic iterations",
+      "seconds": 5.2
+    },
+    {
+      "name": "project1_sota_report.ipynb",
+      "status": "passed",
+      "scope": "label statistics and conditional submission checks; historical narrative is not revalidated",
+      "seconds": 0.5
+    },
+    {
+      "name": "PIPELINE_WORKFLOW.ipynb",
+      "status": "passed",
+      "scope": "default reading mode plus separate enabled training/validation run on 1500 training and 80 test rows; 3 GBM rounds, 1 MLP seed, 2 epochs"
+    }
+  ],
+  "limitations": [
+    "Full production GBM/MLP training not repeated.",
+    "Runtime depends on BLAS, hardware and caching.",
+    "No claim of improved leaderboard performance."
+  ]
+}

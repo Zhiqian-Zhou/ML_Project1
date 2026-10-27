@@ -1,0 +1,42 @@
+{
+  "Rank_Blend_Tri_Blend": {
+    "f1_mean": 0.43431639005756584,
+    "f1_std": 0.003861577931236491,
+    "precision_mean": 0.3624213336707359,
+    "precision_std": 0.00482338425495717,
+    "recall_mean": 0.5418809318377912,
+    "recall_std": 0.005249306374340869,
+    "balanced_accuracy_mean": 0.7247628352196042,
+    "balanced_accuracy_std": 0.002404562543444063,
+    "accuracy_mean": 0.8753470370426806,
+    "accuracy_std": 0.0017624768934121821,
+    "threshold_mean": 0.866
+  },
+  "Isotonic_PAVA_Tri_Blend": {
+    "f1_mean": 0.4338260913513463,
+    "f1_std": 0.004114720402459047,
+    "precision_mean": 0.3590586899460887,
+    "precision_std": 0.003405916527991933,
+    "recall_mean": 0.5479896462467645,
+    "recall_std": 0.008083298627946817,
+    "balanced_accuracy_mean": 0.7266205083754212,
+    "balanced_accuracy_std": 0.003647501586290619,
+    "accuracy_mean": 0.8737044204367106,
+    "accuracy_std": 0.0012023485300213619,
+    "threshold_mean": 0.21900000000000003
+  },
+  "Calibrated_Quad_Blend": {
+    "f1_mean": 0.4324919502184156,
+    "f1_std": 0.0027989974597950815,
+    "precision_mean": 0.3612410145994741,
+    "precision_std": 0.006450885205603664,
+    "recall_mean": 0.5390854184641933,
+    "recall_std": 0.008230347446953128,
+    "balanced_accuracy_mean": 0.7233400083362549,
+    "balanced_accuracy_std": 0.002401395758133208,
+    "accuracy_mean": 0.8750544745303002,
+    "accuracy_std": 0.002890581384213143,
+    "threshold_mean": 0.217
+  },
+  "total_time_seconds": 286.847825050354
+}

@@ -1,0 +1,52 @@
+{
+  "strategy": "Hard-Negative Bagging Tri-Blend",
+  "optimal_weights": [
+    0.35,
+    0.4,
+    0.25
+  ],
+  "accuracy_mean": 0.8775503984640469,
+  "accuracy_std": 0.0009188177690085893,
+  "precision_mean": 0.3666978168417149,
+  "precision_std": 0.0033827225637517297,
+  "recall_mean": 0.5318723037100949,
+  "recall_std": 0.004259744305260521,
+  "balanced_accuracy_mean": 0.7214515950961224,
+  "balanced_accuracy_std": 0.0024057431832106985,
+  "f1_mean": 0.43410327765608836,
+  "f1_std": 0.0037599524532629003,
+  "optimal_tau": 0.87,
+  "hypotheses_comparison": {
+    "H1_Hard_Negative_Bagging": {
+      "f1_mean": 0.4321843319284497,
+      "f1_std": 0.004240704461336702,
+      "prec_mean": 0.36445254286410933,
+      "rec_mean": 0.5315962036238135
+    },
+    "H1_Uniform_Bagging": {
+      "f1_mean": 0.4309475697231567,
+      "f1_std": 0.0041936358774216755,
+      "prec_mean": 0.3674114829230969,
+      "rec_mean": 0.5213459879206213
+    },
+    "H2_Continuous_Borderline_SMOTE": {
+      "f1_mean": 0.42782178600623305,
+      "f1_std": 0.002414229244358966,
+      "prec_mean": 0.3320820320798042,
+      "rec_mean": 0.6014840379637618
+    },
+    "Ridge_Base": {
+      "f1_mean": 0.4323620398699616,
+      "f1_std": 0.003554140168838818,
+      "prec_mean": 0.36330281707673207,
+      "rec_mean": 0.5345987920621225
+    },
+    "Soft_F1_Base": {
+      "f1_mean": 0.42726205451869725,
+      "f1_std": 0.0033295418888101055,
+      "prec_mean": 0.348092178896528,
+      "rec_mean": 0.5531320103537531
+    }
+  },
+  "total_elapsed_seconds": 364.0433096885681
+}

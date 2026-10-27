@@ -1,0 +1,63 @@
+{
+  "Hypothesis A: WoE Target Encoding": {
+    "dims": 209,
+    "accuracy_mean": 0.8756304569765494,
+    "accuracy_std": 0.0010904438728517889,
+    "precision_mean": 0.36178811228667807,
+    "precision_std": 0.003212055316161673,
+    "recall_mean": 0.534495254529767,
+    "recall_std": 0.004908305170063542,
+    "balanced_accuracy_mean": 0.7215830999216557,
+    "balanced_accuracy_std": 0.0023358725931076803,
+    "f1_mean": 0.43149091129667544,
+    "f1_std": 0.0032090525687413075,
+    "threshold_mean": -0.14,
+    "elapsed": 9.679553031921387
+  },
+  "Hypothesis B: Heterogeneous Rank Blend + WoE": {
+    "dims": 209,
+    "accuracy_mean": 0.8748746704862327,
+    "accuracy_std": 0.0028647815860162445,
+    "precision_mean": 0.3606541567948878,
+    "precision_std": 0.006685557992575844,
+    "recall_mean": 0.5386367558239862,
+    "recall_std": 0.005448824884848327,
+    "balanced_accuracy_mean": 0.7230387950800636,
+    "balanced_accuracy_std": 0.0011148589485940987,
+    "f1_mean": 0.4319501140277689,
+    "f1_std": 0.0033167041666270465,
+    "threshold_mean": 0.867,
+    "elapsed": 55.35453796386719
+  },
+  "Hypothesis C: Pure-NumPy 2-Layer MLP": {
+    "dims": 205,
+    "accuracy_mean": 0.8777820104530148,
+    "accuracy_std": 0.0027816152177981357,
+    "precision_mean": 0.36462676934722604,
+    "precision_std": 0.006576596052176806,
+    "recall_mean": 0.5161345987920622,
+    "recall_std": 0.007774895824723945,
+    "balanced_accuracy_mean": 0.7144718989414247,
+    "balanced_accuracy_std": 0.002010268729499396,
+    "f1_mean": 0.42723686661672733,
+    "f1_std": 0.001974520335185805,
+    "train_f1_mean": 0.464364152842273,
+    "threshold_mean": 0.43000000000000005,
+    "elapsed": 28.978955030441284
+  },
+  "Hypothesis D: Multi-morbidity Stacking": {
+    "dims": 206,
+    "accuracy_mean": 0.8756609322382556,
+    "accuracy_std": 0.0011094837019625804,
+    "precision_mean": 0.36174463877648994,
+    "precision_std": 0.003180105303752803,
+    "recall_mean": 0.5338050043140639,
+    "recall_std": 0.005400518746327626,
+    "balanced_accuracy_mean": 0.7212881152069048,
+    "balanced_accuracy_std": 0.0024825719079717384,
+    "f1_mean": 0.43123218399408775,
+    "f1_std": 0.0032085198801599583,
+    "threshold_mean": -0.14,
+    "elapsed": 8.058207035064697
+  }
+}

@@ -1,67 +1,136 @@
-"""Classification metrics. AIcrowd ranks by F1 score, so F1 is our main metric.
+"""Classification metrics for EPFL CS-433 Project 1.
 
-STATUS: template.
-
-All functions take labels in {-1, 1}. Remember that always predicting -1
-gives ~91% accuracy but F1 = 0: never judge a model by accuracy alone.
+All functions evaluate binary classification with labels in {-1, 1}.
+Precision, recall, and F1-score are computed strictly for the positive class (+1).
 """
 
 import numpy as np
 
 
 def accuracy(y_true, y_pred):
-    """Fraction of correct predictions.
+    """Compute fraction of correct classifications.
 
     Args:
-        y_true: numpy array of shape (N,), values in {-1, 1}.
-        y_pred: numpy array of shape (N,), values in {-1, 1}.
+        y_true (np.ndarray): Ground truth labels of shape (N,), values in {-1, 1}.
+        y_pred (np.ndarray): Predicted labels of shape (N,), values in {-1, 1}.
 
     Returns:
-        float in [0, 1].
+        float: Accuracy score in [0.0, 1.0].
     """
-    raise NotImplementedError("Pending: accuracy")
+    assert y_true.shape == y_pred.shape, "Shape mismatch between y_true and y_pred"
+    return float(np.mean(y_true == y_pred))
 
 
 def precision_recall_f1(y_true, y_pred):
-    """Precision, recall and F1 of the positive class (+1).
+    """Compute precision, recall, and F1-score of the positive class (+1).
 
-    F1 = 2 * P * R / (P + R); return 0 when the denominator is 0.
+    F1 = 2 * P * R / (P + R) = 2 TP / (2 TP + FP + FN); returns 0.0 when there is no true positive.
 
     Args:
-        y_true: numpy array of shape (N,), values in {-1, 1}.
-        y_pred: numpy array of shape (N,), values in {-1, 1}.
+        y_true (np.ndarray): Ground truth labels of shape (N,), values in {-1, 1}.
+        y_pred (np.ndarray): Predicted labels of shape (N,), values in {-1, 1}.
 
     Returns:
-        precision, recall, f1 (floats).
+        tuple: (precision, recall, f1) as float values in [0.0, 1.0].
     """
-    raise NotImplementedError("Pending: precision_recall_f1")
+    assert y_true.shape == y_pred.shape, "Shape mismatch between y_true and y_pred"
+    tp = float(np.sum((y_true == 1) & (y_pred == 1)))
+    fp = float(np.sum((y_true == -1) & (y_pred == 1)))
+    fn = float(np.sum((y_true == 1) & (y_pred == -1)))
+
+    if tp == 0.0:
+        return 0.0, 0.0, 0.0
+
+    precision = tp / (tp + fp) if (tp + fp) > 0.0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0.0 else 0.0
+    f1 = (
+        2.0 * precision * recall / (precision + recall)
+        if (precision + recall) > 0.0
+        else 0.0
+    )
+    return float(precision), float(recall), float(f1)
+
+
+def confusion_matrix(y_true, y_pred):
+    """Compute confusion matrix counts and balanced accuracy.
+
+    Args:
+        y_true (np.ndarray): Ground truth labels of shape (N,), values in {-1, 1}.
+        y_pred (np.ndarray): Predicted labels of shape (N,), values in {-1, 1}.
+
+    Returns:
+        dict: Counts of TP, FP, TN, FN and balanced accuracy.
+    """
+    assert y_true.shape == y_pred.shape, "Shape mismatch between y_true and y_pred"
+    tp = int(np.sum((y_true == 1) & (y_pred == 1)))
+    fp = int(np.sum((y_true == -1) & (y_pred == 1)))
+    tn = int(np.sum((y_true == -1) & (y_pred == -1)))
+    fn = int(np.sum((y_true == 1) & (y_pred == -1)))
+
+    sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+    balanced_acc = 0.5 * (sensitivity + specificity)
+
+    return {
+        "tp": tp,
+        "fp": fp,
+        "tn": tn,
+        "fn": fn,
+        "balanced_accuracy": balanced_acc,
+    }
 
 
 def predict_labels(scores, threshold):
-    """Turn real-valued scores (e.g. probabilities) into labels in {-1, 1}.
+    """Turn real-valued scores into binary classification labels {-1, 1}.
+
+    Rule: If score >= threshold -> +1, else -> -1.
 
     Args:
-        scores: numpy array of shape (N,).
-        threshold: float, predict +1 when score >= threshold.
+        scores (np.ndarray): Continuous prediction scores of shape (N,).
+        threshold (float): Decision cutoff boundary.
 
     Returns:
-        numpy array of shape (N,), values in {-1, 1}.
+        np.ndarray: Predicted labels in {-1, 1} of shape (N,).
     """
-    raise NotImplementedError("Pending: predict_labels")
+    return np.where(scores >= threshold, 1, -1)
 
 
 def best_threshold(y_true, scores, candidates=None):
-    """Find the decision threshold that maximizes F1 on validation data.
+    """Find the decision threshold that maximizes positive class F1-score.
 
-    With ~9% positives the best threshold is usually well below 0.5.
+    Uses O(C log N) searchsorted evaluation over threshold candidates.
 
     Args:
-        y_true: numpy array of shape (N,), values in {-1, 1}.
-        scores: numpy array of shape (N,).
-        candidates: numpy array of thresholds to try (default: a grid).
+        y_true (np.ndarray): Ground truth labels of shape (N,), values in {-1, 1}.
+        scores (np.ndarray): Continuous prediction scores of shape (N,).
+        candidates (np.ndarray, optional): Array of threshold values to evaluate.
 
     Returns:
-        threshold: float, the best threshold.
-        f1: float, the F1 obtained with it.
+        tuple: (best_threshold, best_f1)
     """
-    raise NotImplementedError("Pending: best_threshold")
+    if candidates is None:
+        candidates = np.unique(np.quantile(scores, np.linspace(0, 1, 101)))
+
+    candidates = np.sort(candidates)
+    pos_scores = np.sort(scores[y_true == 1])
+    neg_scores = np.sort(scores[y_true == -1])
+    n_pos = len(pos_scores)
+    n_neg = len(neg_scores)
+
+    if n_pos == 0:
+        return float(candidates[0]), 0.0
+
+    # Number of positive predictions for each candidate threshold
+    tp = n_pos - np.searchsorted(pos_scores, candidates, side="left")
+    fp = n_neg - np.searchsorted(neg_scores, candidates, side="left")
+
+    precision = np.where(tp + fp > 0, tp / (tp + fp), 0.0)
+    recall = tp / n_pos
+    f1 = np.where(
+        precision + recall > 0.0,
+        2.0 * precision * recall / (precision + recall),
+        0.0,
+    )
+
+    best_idx = int(np.argmax(f1))
+    return float(candidates[best_idx]), float(f1[best_idx])

@@ -1,0 +1,2382 @@
+{
+ "_STATE": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "state FIPS; 53 levels"
+ },
+ "FMONTH": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "file month"
+ },
+ "IDATE": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "interview date mmddyyyy"
+ },
+ "IMONTH": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "interview month"
+ },
+ "IDAY": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "interview day"
+ },
+ "IYEAR": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "interview year"
+ },
+ "DISPCODE": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "1100 complete/1200 partial interview"
+ },
+ "SEQNO": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "sequence number (identical to _PSU)"
+ },
+ "_PSU": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "primary sampling unit = SEQNO"
+ },
+ "CTELENUM": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "landline screening, constant 1"
+ },
+ "PVTRESD1": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "landline screening private residence"
+ },
+ "COLGHOUS": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "college housing, ~100% NaN"
+ },
+ "STATERES": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "state resident, constant"
+ },
+ "CELLFON3": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "landline screening: is cellphone"
+ },
+ "LADULT": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "~100% NaN"
+ },
+ "NUMADULT": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "adults in household (landline only)"
+ },
+ "NUMMEN": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "adult men in household (landline only)"
+ },
+ "NUMWOMEN": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "adult women in household (landline only)"
+ },
+ "CTELNUM1": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "cell screening constant"
+ },
+ "CELLFON2": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "cell screening constant"
+ },
+ "CADULT": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "cell screening: sex of respondent (dup of SEX)"
+ },
+ "PVTRESD2": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "cell screening private residence"
+ },
+ "CCLGHOUS": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "~100% NaN"
+ },
+ "CSTATE": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "cell: lives in state"
+ },
+ "LANDLINE": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "cell respondents: also has landline"
+ },
+ "HHADULT": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "cell respondents: adults in household"
+ },
+ "GENHLTH": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "general health 1 excellent..5 poor"
+ },
+ "PHYSHLTH": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "days physical health not good | transform=days30"
+ },
+ "MENTHLTH": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "days mental health not good | transform=days30"
+ },
+ "POORHLTH": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "days poor health kept from activities (skip if PHYS&MENT=88) | transform=days30"
+ },
+ "HLTHPLN1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "any health coverage"
+ },
+ "PERSDOC2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "personal doctor 1 one/2 more/3 none"
+ },
+ "MEDCOST": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "could not see doctor due to cost"
+ },
+ "CHECKUP1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "time since checkup 1..4, 8=never -> recoded to 5 (after 4 = \"5+ years\")",
+  "recode": {
+   "8": 5
+  }
+ },
+ "BPHIGH4": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "high BP 1 yes 2 pregnancy-only 3 no 4 borderline"
+ },
+ "BPMEDS": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "on BP meds (asked if BPHIGH4=1)"
+ },
+ "BLOODCHO": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "ever cholesterol checked"
+ },
+ "CHOLCHK": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "time since cholesterol check | NaN when BLOODCHO=2 (never checked) -> structural 5 (never)"
+ },
+ "TOLDHI2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "high cholesterol"
+ },
+ "CVDSTRK3": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "ever stroke"
+ },
+ "ASTHMA3": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "ever asthma"
+ },
+ "ASTHNOW": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "still asthma"
+ },
+ "CHCSCNCR": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "skin cancer"
+ },
+ "CHCOCNCR": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "other cancer"
+ },
+ "CHCCOPD1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "COPD"
+ },
+ "HAVARTH3": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "arthritis"
+ },
+ "ADDEPEV2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "depression"
+ },
+ "CHCKIDNY": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "kidney disease"
+ },
+ "DIABETE3": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "diabetes 1 yes 2 pregnancy 3 no 4 prediabetes"
+ },
+ "DIABAGE2": {
+  "nan_codes": [
+   98,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "age at diabetes diagnosis"
+ },
+ "SEX": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "1 male 2 female"
+ },
+ "MARITAL": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "marital status"
+ },
+ "EDUCA": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "education 1..6"
+ },
+ "RENTHOM1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "own/rent/other"
+ },
+ "NUMHHOL2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "multiple household phone numbers (landline)"
+ },
+ "NUMPHON2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "number of residential phone numbers"
+ },
+ "CPDEMO1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "has cell phone (landline sample)"
+ },
+ "VETERAN3": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "veteran"
+ },
+ "EMPLOY1": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "employment status (7 retired, 8 unable to work)"
+ },
+ "CHILDREN": {
+  "nan_codes": [
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "children in household"
+ },
+ "INCOME2": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "income 1..8"
+ },
+ "INTERNET": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "internet use"
+ },
+ "WEIGHT2": {
+  "nan_codes": [
+   7777,
+   9999
+  ],
+  "zero_codes": [],
+  "notes": "weight lbs (50-999) or 9xxx kg; prefer WTKG3 | transform=weight2"
+ },
+ "HEIGHT3": {
+  "nan_codes": [
+   7777,
+   9999
+  ],
+  "zero_codes": [],
+  "notes": "height ftin (e.g. 510) or 9xxx cm; prefer HTIN4/HTM4 | transform=height3"
+ },
+ "PREGNANT": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "pregnant (women 18-44)"
+ },
+ "QLACTLM2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "activity limitation"
+ },
+ "USEEQUIP": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "uses special equipment"
+ },
+ "BLIND": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "blind/difficulty seeing"
+ },
+ "DECIDE": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "difficulty concentrating"
+ },
+ "DIFFWALK": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "difficulty walking"
+ },
+ "DIFFDRES": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "difficulty dressing"
+ },
+ "DIFFALON": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "difficulty errands alone"
+ },
+ "SMOKE100": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "smoked 100 cigarettes"
+ },
+ "SMOKDAY2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "smoke now 1 every day 2 some 3 not at all"
+ },
+ "STOPSMK2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "tried to quit in 12 months"
+ },
+ "LASTSMK2": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "time since last smoked 1..7, 8 never smoked regularly"
+ },
+ "USENOW3": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "smokeless tobacco 1..3"
+ },
+ "ALCDAY5": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [
+   888
+  ],
+  "notes": "alcohol days: 1xx per week, 2xx per 30d -> days/week | transform=perweek_wm"
+ },
+ "AVEDRNK2": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "avg drinks per drinking day (skip if no drink -> 0)"
+ },
+ "DRNK3GE5": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "binge occasions (skip if no drink -> 0)"
+ },
+ "MAXDRNKS": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "max drinks (skip if no drink -> 0)"
+ },
+ "FRUITJU1": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [
+   555,
+   300
+  ],
+  "notes": "fruit juice frequency 1xx/day 2xx/week 3xx/month | transform=food"
+ },
+ "FRUIT1": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [
+   555,
+   300
+  ],
+  "notes": "fruit frequency | transform=food"
+ },
+ "FVBEANS": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [
+   555,
+   300
+  ],
+  "notes": "beans frequency | transform=food"
+ },
+ "FVGREEN": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [
+   555,
+   300
+  ],
+  "notes": "green veg frequency | transform=food"
+ },
+ "FVORANG": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [
+   555,
+   300
+  ],
+  "notes": "orange veg frequency | transform=food"
+ },
+ "VEGETAB1": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [
+   555,
+   300
+  ],
+  "notes": "other veg frequency | transform=food"
+ },
+ "EXERANY2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "any exercise past 30 days"
+ },
+ "EXRACT11": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "activity type (76 levels), 98=other"
+ },
+ "EXEROFT1": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [],
+  "notes": "activity1 freq 1xx/week 2xx/month | transform=perweek_wm"
+ },
+ "EXERHMM1": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [],
+  "notes": "activity1 duration h:mm | transform=hhmm"
+ },
+ "EXRACT21": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "second activity type, 88=no other"
+ },
+ "EXEROFT2": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [],
+  "notes": "activity2 freq | transform=perweek_wm"
+ },
+ "EXERHMM2": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [],
+  "notes": "activity2 duration | transform=hhmm"
+ },
+ "STRENGTH": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [
+   888
+  ],
+  "notes": "strength training freq | transform=perweek_wm"
+ },
+ "LMTJOIN3": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "arthritis: limited by joints"
+ },
+ "ARTHDIS2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "arthritis affects work"
+ },
+ "ARTHSOCL": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "arthritis social limitation"
+ },
+ "JOINPAIN": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "joint pain 0-10"
+ },
+ "SEATBELT": {
+  "nan_codes": [
+   7,
+   9,
+   8
+  ],
+  "zero_codes": [],
+  "notes": "seatbelt use 1 always..5 never, 8 never ride (NaN, counted in SEATBELT_dk)"
+ },
+ "FLUSHOT6": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "flu shot 12 mo"
+ },
+ "FLSHTMY2": {
+  "nan_codes": [
+   777777,
+   999999
+  ],
+  "zero_codes": [],
+  "notes": "flu shot month+year"
+ },
+ "IMFVPLAC": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "where flu shot"
+ },
+ "PNEUVAC3": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "pneumonia shot ever"
+ },
+ "HIVTST6": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "ever HIV test"
+ },
+ "HIVTSTD3": {
+  "nan_codes": [
+   777777,
+   999999
+  ],
+  "zero_codes": [],
+  "notes": "HIV test month+year"
+ },
+ "WHRTST10": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "HIV test location"
+ },
+ "PDIABTST": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "module: blood sugar test 3y"
+ },
+ "PREDIAB1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "module: prediabetes"
+ },
+ "INSULIN": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "diabetes module: insulin"
+ },
+ "BLDSUGAR": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [
+   888
+  ],
+  "notes": "diabetes module: glucose checks 1xx/d 2xx/w 3xx/m 4xx/y | transform=peryear_dwmy"
+ },
+ "FEETCHK2": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [
+   888,
+   555
+  ],
+  "notes": "diabetes module: feet checks | transform=peryear_dwmy"
+ },
+ "DOCTDIAB": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "diabetes module: doctor visits"
+ },
+ "CHKHEMO3": {
+  "nan_codes": [
+   77,
+   99,
+   98
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "diabetes module: A1C checks"
+ },
+ "FEETCHK": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "diabetes module: feet checked by prof"
+ },
+ "EYEEXAM": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "diabetes module: eye exam 1..4, 8=never -> recoded to 5",
+  "recode": {
+   "8": 5
+  }
+ },
+ "DIABEYE": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "diabetes module: retinopathy"
+ },
+ "DIABEDU": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "diabetes module: education class"
+ },
+ "CAREGIV1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "caregiver module"
+ },
+ "CRGVREL1": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "caregiver relation"
+ },
+ "CRGVLNG1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "caregiving length"
+ },
+ "CRGVHRS1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "caregiving hours"
+ },
+ "CRGVPRB1": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "care recipient problem"
+ },
+ "CRGVPERS": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "caregiving personal care"
+ },
+ "CRGVHOUS": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "caregiving household tasks"
+ },
+ "CRGVMST2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "caregiver support need"
+ },
+ "CRGVEXPT": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "expect to be caregiver"
+ },
+ "VIDFCLT2": {
+  "nan_codes": [
+   7
+  ],
+  "zero_codes": [],
+  "notes": "vision module (99% NaN)"
+ },
+ "VIREDIF3": {
+  "nan_codes": [
+   7
+  ],
+  "zero_codes": [],
+  "notes": "vision module"
+ },
+ "VIPRFVS2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "vision module"
+ },
+ "VINOCRE2": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "vision module"
+ },
+ "VIEYEXM2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "vision module"
+ },
+ "VIINSUR2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "vision module"
+ },
+ "VICTRCT4": {
+  "nan_codes": [
+   7
+  ],
+  "zero_codes": [],
+  "notes": "vision module"
+ },
+ "VIGLUMA2": {
+  "nan_codes": [
+   7
+  ],
+  "zero_codes": [],
+  "notes": "vision module"
+ },
+ "VIMACDG2": {
+  "nan_codes": [
+   7
+  ],
+  "zero_codes": [],
+  "notes": "vision module"
+ },
+ "CIMEMLOS": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "cognitive decline module"
+ },
+ "CDHOUSE": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "cognitive module"
+ },
+ "CDASSIST": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "cognitive module"
+ },
+ "CDHELP": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "cognitive module"
+ },
+ "CDSOCIAL": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "cognitive module"
+ },
+ "CDDISCUS": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "cognitive module"
+ },
+ "WTCHSALT": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "sodium module: watching salt"
+ },
+ "LONGWTCH": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [],
+  "notes": "sodium module: how long"
+ },
+ "DRADVISE": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "sodium module: doctor advised reduce salt"
+ },
+ "ASTHMAGE": {
+  "nan_codes": [
+   98,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "asthma callback module"
+ },
+ "ASATTACK": {
+  "nan_codes": [
+   7
+  ],
+  "zero_codes": [],
+  "notes": "asthma callback"
+ },
+ "ASERVIST": {
+  "nan_codes": [
+   98
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "asthma callback"
+ },
+ "ASDRVIST": {
+  "nan_codes": [
+   98
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "asthma callback"
+ },
+ "ASRCHKUP": {
+  "nan_codes": [
+   98,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "asthma callback"
+ },
+ "ASACTLIM": {
+  "nan_codes": [
+   777,
+   999
+  ],
+  "zero_codes": [
+   888
+  ],
+  "notes": "asthma callback"
+ },
+ "ASYMPTOM": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [
+   8
+  ],
+  "notes": "asthma callback"
+ },
+ "ASNOSLEP": {
+  "nan_codes": [
+   7
+  ],
+  "zero_codes": [
+   8
+  ],
+  "notes": "asthma callback"
+ },
+ "ASTHMED3": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [
+   8
+  ],
+  "notes": "asthma callback"
+ },
+ "ASINHALR": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [
+   8
+  ],
+  "notes": "asthma callback"
+ },
+ "HAREHAB1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "LEAK: asked only to people with heart attack (CVDINFR4=1)"
+ },
+ "STREHAB1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "asked only to stroke survivors (module)"
+ },
+ "CVDASPRN": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "CVD module: aspirin daily"
+ },
+ "ASPUNSAF": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "CVD module: aspirin unsafe"
+ },
+ "RLIVPAIN": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "CVD module: aspirin for pain"
+ },
+ "RDUCHART": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "CVD module: aspirin to reduce heart attack"
+ },
+ "RDUCSTRK": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "CVD module: aspirin to reduce stroke"
+ },
+ "ARTTODAY": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "arthritis mgmt module"
+ },
+ "ARTHWGT": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "arthritis mgmt module"
+ },
+ "ARTHEXER": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "arthritis mgmt module"
+ },
+ "ARTHEDU": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "arthritis mgmt module"
+ },
+ "TETANUS": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "adult immunization module"
+ },
+ "HPVADVC2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "HPV module"
+ },
+ "HPVADSHT": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "HPV module"
+ },
+ "SHINGLE2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "shingles vaccine module (50+)"
+ },
+ "HADMAM": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "breast/cervical module"
+ },
+ "HOWLONG": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "breast/cervical module"
+ },
+ "HADPAP2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "breast/cervical module"
+ },
+ "LASTPAP2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "breast/cervical module"
+ },
+ "HPVTEST": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "breast/cervical module"
+ },
+ "HPLSTTST": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "breast/cervical module"
+ },
+ "HADHYST2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "breast/cervical module"
+ },
+ "PROFEXAM": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "breast/cervical module"
+ },
+ "LENGEXAM": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "breast/cervical module"
+ },
+ "BLDSTOOL": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "colorectal module (50+)"
+ },
+ "LSTBLDS3": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "colorectal module"
+ },
+ "HADSIGM3": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "colorectal module"
+ },
+ "HADSGCO1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "colorectal module"
+ },
+ "LASTSIG3": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "colorectal module"
+ },
+ "PCPSAAD2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "prostate module"
+ },
+ "PCPSADI1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "prostate module"
+ },
+ "PCPSARE1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "prostate module"
+ },
+ "PSATEST1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "prostate module"
+ },
+ "PSATIME": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "prostate module"
+ },
+ "PCPSARS1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "prostate module"
+ },
+ "PCPSADE1": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "prostate module"
+ },
+ "PCDMDECN": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "prostate module"
+ },
+ "SCNTMNY1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [
+   8
+  ],
+  "notes": "social context module"
+ },
+ "SCNTMEL1": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [
+   8
+  ],
+  "notes": "social context module"
+ },
+ "SCNTPAID": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "social context module"
+ },
+ "SCNTWRK1": {
+  "nan_codes": [
+   97,
+   99
+  ],
+  "zero_codes": [
+   98
+  ],
+  "notes": "social context module hours worked"
+ },
+ "SCNTLPAD": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "social context module"
+ },
+ "SCNTLWK1": {
+  "nan_codes": [
+   97,
+   99
+  ],
+  "zero_codes": [
+   98
+  ],
+  "notes": "social context module"
+ },
+ "SXORIENT": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "SOGI module"
+ },
+ "TRNSGNDR": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "SOGI module"
+ },
+ "RCSGENDR": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "child random selection"
+ },
+ "RCSRLTN2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "child random selection"
+ },
+ "CASTHDX2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "child asthma"
+ },
+ "CASTHNO2": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "child asthma"
+ },
+ "EMTSUPRT": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "emotional support module"
+ },
+ "LSATISFY": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "life satisfaction module"
+ },
+ "ADPLEASR": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "anxiety/depression module"
+ },
+ "ADDOWN": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "anxiety/depression module"
+ },
+ "ADSLEEP": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "anxiety/depression module"
+ },
+ "ADENERGY": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "anxiety/depression module"
+ },
+ "ADEAT1": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "anxiety/depression module"
+ },
+ "ADFAIL": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "anxiety/depression module"
+ },
+ "ADTHINK": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "anxiety/depression module"
+ },
+ "ADMOVE": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [
+   88
+  ],
+  "notes": "anxiety/depression module"
+ },
+ "MISTMNT": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "anxiety/depression module"
+ },
+ "ADANXEV": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "anxiety/depression module"
+ },
+ "QSTVER": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "questionnaire version (landline/cell)"
+ },
+ "QSTLANG": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "language"
+ },
+ "MSCODE": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "metropolitan status (landline only)"
+ },
+ "_STSTR": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "stratum"
+ },
+ "_STRWT": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "stratum weight"
+ },
+ "_RAWRAKE": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "raw raking weight"
+ },
+ "_WT2RAKE": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "design weight"
+ },
+ "_CHISPNC": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "child hispanic"
+ },
+ "_CRACE1": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "child race"
+ },
+ "_CPRACE": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "child preferred race (= _CRACE1)"
+ },
+ "_CLLCPWT": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "child weight"
+ },
+ "_DUALUSE": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "dual phone use"
+ },
+ "_DUALCOR": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "dual phone correction"
+ },
+ "_LLCPWT": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "final weight"
+ },
+ "_RFHLTH": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "from GENHLTH"
+ },
+ "_HCVU651": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "coverage age 18-64 (9 includes 65+)"
+ },
+ "_RFHYPE5": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "from BPHIGH4"
+ },
+ "_CHOLCHK": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "from BLOODCHO/CHOLCHK"
+ },
+ "_RFCHOL": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "from TOLDHI2"
+ },
+ "_LTASTH1": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "from ASTHMA3"
+ },
+ "_CASTHM1": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "from ASTHNOW"
+ },
+ "_ASTHMS1": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "asthma status current/former/never"
+ },
+ "_DRDXAR1": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "from HAVARTH3"
+ },
+ "_PRACE1": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "preferred race"
+ },
+ "_MRACE1": {
+  "nan_codes": [
+   77,
+   99
+  ],
+  "zero_codes": [],
+  "notes": "multiple race"
+ },
+ "_HISPANC": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "hispanic"
+ },
+ "_RACE": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "race/ethnicity 8 cats"
+ },
+ "_RACEG21": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "white vs other"
+ },
+ "_RACEGR3": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "race 5 cats"
+ },
+ "_RACE_G1": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "race 5 cats"
+ },
+ "_AGEG5YR": {
+  "nan_codes": [
+   14
+  ],
+  "zero_codes": [],
+  "notes": "age 5y groups 1..13"
+ },
+ "_AGE65YR": {
+  "nan_codes": [
+   3
+  ],
+  "zero_codes": [],
+  "notes": "age >=65"
+ },
+ "_AGE80": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "imputed age, top-coded 80"
+ },
+ "_AGE_G": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "age 6 groups"
+ },
+ "HTIN4": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "height inches"
+ },
+ "HTM4": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "height m (= HTIN4)"
+ },
+ "WTKG3": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "weight kg (already scaled; 99999 code does not occur after scaling)"
+ },
+ "_BMI5": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "BMI"
+ },
+ "_BMI5CAT": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "BMI category"
+ },
+ "_RFBMI5": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "overweight/obese"
+ },
+ "_CHLDCNT": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "children count category"
+ },
+ "_EDUCAG": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "education 4 levels"
+ },
+ "_INCOMG": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "income 5 levels"
+ },
+ "_SMOKER3": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "smoker status 1 daily 2 some 3 former 4 never"
+ },
+ "_RFSMOK3": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "current smoker"
+ },
+ "DRNKANY5": {
+  "nan_codes": [
+   7,
+   9
+  ],
+  "zero_codes": [],
+  "notes": "any drink 30d"
+ },
+ "DROCDY3_": {
+  "nan_codes": [
+   900
+  ],
+  "zero_codes": [],
+  "notes": "drink occasions/day (x100) | stored x100 in this file -> scale 0.01",
+  "scale": 0.01
+ },
+ "_RFBING5": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "binge drinker"
+ },
+ "_DRNKWEK": {
+  "nan_codes": [
+   99900
+  ],
+  "zero_codes": [],
+  "notes": "drinks per week (x100) | stored x100 in this file -> scale 0.01",
+  "scale": 0.01
+ },
+ "_RFDRHV5": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "heavy drinker"
+ },
+ "FTJUDA1_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "juice/day"
+ },
+ "FRUTDA1_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "fruit/day"
+ },
+ "BEANDAY_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "beans/day"
+ },
+ "GRENDAY_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "greens/day"
+ },
+ "ORNGDAY_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "orange veg/day"
+ },
+ "VEGEDA1_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "other veg/day"
+ },
+ "_MISFRTN": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "n missing fruit answers"
+ },
+ "_MISVEGN": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "n missing veg answers"
+ },
+ "_FRTRESP": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "fruit included flag"
+ },
+ "_VEGRESP": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "veg included flag"
+ },
+ "_FRUTSUM": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "total fruit/day"
+ },
+ "_VEGESUM": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "total veg/day"
+ },
+ "_FRTLT1": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "fruit <1/day"
+ },
+ "_VEGLT1": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "veg <1/day"
+ },
+ "_FRT16": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "fruit in range flag (~constant)"
+ },
+ "_VEG23": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "veg in range flag (~constant)"
+ },
+ "_FRUITEX": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "fruit exclusion flag"
+ },
+ "_VEGETEX": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "veg exclusion flag"
+ },
+ "_TOTINDA": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "any leisure physical activity"
+ },
+ "METVL11_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "MET value activity 1 (x10)"
+ },
+ "METVL21_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "MET value activity 2"
+ },
+ "MAXVO2_": {
+  "nan_codes": [
+   999
+  ],
+  "zero_codes": [],
+  "notes": "est. max VO2 (age/sex function)"
+ },
+ "FC60_": {
+  "nan_codes": [
+   999
+  ],
+  "zero_codes": [],
+  "notes": "functional capacity = MAXVO2_/5.83"
+ },
+ "ACTIN11_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "activity1 intensity"
+ },
+ "ACTIN21_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "activity2 intensity"
+ },
+ "PADUR1_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "activity1 minutes (= EXERHMM1)"
+ },
+ "PADUR2_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "activity2 minutes"
+ },
+ "PAFREQ1_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "activity1 times/week (= EXEROFT1) | 99 is a real value (EXEROFT=199), kept (log1p compresses it)"
+ },
+ "PAFREQ2_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "activity2 times/week | 99 is a real value (EXEROFT=199), kept (log1p compresses it)"
+ },
+ "_MINAC11": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "activity1 minutes/week"
+ },
+ "_MINAC21": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "activity2 minutes/week"
+ },
+ "STRFREQ_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "strength times/week | 88-99 are valid (rescaled times/week), kept (log1p compresses it)"
+ },
+ "PAMISS1_": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "PA missing flag"
+ },
+ "PAMIN11_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "activity1 MET-min"
+ },
+ "PAMIN21_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "activity2 MET-min"
+ },
+ "PA1MIN_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "total activity minutes/week"
+ },
+ "PAVIG11_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "vigorous min act1"
+ },
+ "PAVIG21_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "vigorous min act2"
+ },
+ "PA1VIGM_": {
+  "nan_codes": [],
+  "zero_codes": [],
+  "notes": "total vigorous minutes/week"
+ },
+ "_PACAT1": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "activity category 1 highly..4 inactive"
+ },
+ "_PAINDX1": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "meets aerobic rec"
+ },
+ "_PA150R2": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "aerobic 3 cats"
+ },
+ "_PA300R2": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "aerobic 3 cats"
+ },
+ "_PA30021": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "aerobic 2 cats"
+ },
+ "_PASTRNG": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "meets strength rec"
+ },
+ "_PAREC1": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "both guidelines 4 cats"
+ },
+ "_PASTAE1": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "met both"
+ },
+ "_LMTACT1": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "arthritis+limitation"
+ },
+ "_LMTWRK1": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "arthritis+work limitation"
+ },
+ "_LMTSCL1": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "arthritis+social limitation"
+ },
+ "_RFSEAT2": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "seatbelt"
+ },
+ "_RFSEAT3": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "seatbelt"
+ },
+ "_FLSHOT6": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "flu shot age 65+"
+ },
+ "_PNEUMO2": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "pneumo age 65+"
+ },
+ "_AIDTST3": {
+  "nan_codes": [
+   9
+  ],
+  "zero_codes": [],
+  "notes": "ever HIV test"
+ },
+ "_transforms": {
+  "days30": "88->0, 77/99->NaN",
+  "perweek_wm": "1xx -> xx per week; 2xx -> xx*7/30 per week; 888->0",
+  "food": "1xx -> xx/day; 2xx -> xx/7; 3xx -> xx/30; 300 & 555 -> 0",
+  "peryear_dwmy": "1xx*365, 2xx*52, 3xx*12, 4xx*1 per year",
+  "hhmm": "minutes = (v//100)*60 + v%100",
+  "weight2": "50-999 lbs*0.4536 -> kg; 9000-9998 -> v-9000 kg",
+  "height3": "200-711 ft*12+in -> *2.54 cm; 9000-9998 -> v-9000 cm",
+  "structural_zeros": "AVEDRNK2/DRNK3GE5/MAXDRNKS NaN & ALCDAY5==888 -> 0; POORHLTH NaN & PHYSHLTH==MENTHLTH==88 -> 0; BPMEDS NaN & BPHIGH4 in {2,3,4} -> 'no'; SMOKDAY2 NaN & SMOKE100==2 -> 3; PA1MIN_/PA1VIGM_ NaN & EXERANY2==2 -> 0; JOINPAIN NaN & HAVARTH3==2 -> 0; CHOLCHK NaN & BLOODCHO==2 -> 5; DIABAGE2 NaN & DIABETE3!=1 -> diabetes_years 0; INSULIN NaN & DIABETE3 in {2,3,4} -> 2 (no insulin)",
+  "binary_yn": "1->1, 2->0, 7/9->NaN",
+  "calc_9": "calculated vars: 9 (or 14 for _AGEG5YR, 3 for _AGE65YR, 900/99900/999/99 scaled) = DK/refused -> NaN",
+  "scale": "multiply the cleaned value by 'scale' (default 1)",
+  "recode": "map listed raw values to new values before scaling, e.g. CHECKUP1/EYEEXAM 8 (never) -> 5"
+ }
+}

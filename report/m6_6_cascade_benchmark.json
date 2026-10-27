@@ -1,0 +1,28 @@
+{
+  "Architecture_A_233d_Super_Tri_Blend": {
+    "f1_mean": 0.43431639005756584,
+    "f1_std": 0.003861577931236491,
+    "precision_mean": 0.3624213336707359,
+    "precision_std": 0.00482338425495717,
+    "recall_mean": 0.5418809318377912,
+    "recall_std": 0.005249306374340869,
+    "balanced_accuracy_mean": 0.7247628352196042,
+    "balanced_accuracy_std": 0.002404562543444063,
+    "accuracy_mean": 0.8753470370426806,
+    "accuracy_std": 0.0017624768934121821,
+    "threshold_mean": 0.866
+  },
+  "Architecture_B_Two_Stage_Cascade": {
+    "f1_mean": 0.4338303936976996,
+    "f1_std": 0.004021475008117759,
+    "precision_mean": 0.36796899645705033,
+    "precision_std": 0.006692221656869953,
+    "recall_mean": 0.5288697152717861,
+    "recall_std": 0.013193713534531568,
+    "balanced_accuracy_mean": 0.7204015644148741,
+    "balanced_accuracy_std": 0.004830713093088577,
+    "accuracy_mean": 0.8781080957532723,
+    "accuracy_std": 0.002916971318618372
+  },
+  "total_time_seconds": 273.6983280181885
+}
