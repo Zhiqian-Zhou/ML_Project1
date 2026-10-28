@@ -40,6 +40,33 @@ RAW_KEYS = ("x_train", "x_test", "y_train", "train_ids", "test_ids")
 NUMERIC_KINDS = ("ordinal", "continuous", "continuous_log")
 MODE_KINDS = ("binary", "onehot")
 
+COMPOSITE_COLUMNS = (
+    "VASCULAR_BURDEN",
+    "AGE_VASCULAR_SYNERGY",
+    "METABOLIC_INDEX",
+    "HEALTH_DAYS_BURDEN",
+)
+
+
+def _first_indices(names):
+    """Index first occurrences, preserving list.index behavior for duplicates."""
+    indices = {}
+    for j, name in enumerate(names):
+        indices.setdefault(name, j)
+    return indices
+
+
+def _required_indices(names, selected):
+    """Resolve required columns once, retaining ValueError for absent names."""
+    indices = _first_indices(names)
+    result = []
+    for name in selected:
+        if name not in indices:
+            raise ValueError(f"{name!r} is not in list")
+        result.append(indices[name])
+    return result
+
+
 # (target, [(gate, raw gate values), ...] all required, fill value in RAW coding).
 # A NaN of the target is filled when every RAW gate value is in its list: the
 # question was skipped by design, so NaN means "no" / 0 (notebook section 3.3).
@@ -143,10 +170,9 @@ def extract_high_auc_features(x_raw, feature_names):
             val[np.isin(val, sentinels)] = np.nan
             val[val >= 99900] = np.nan
             cols.append(val)
-            names.append(col)
         else:
             cols.append(np.full(N, np.nan, dtype=np.float64))
-            names.append(col)
+        names.append(col)
     return np.column_stack(cols), names
 
 
@@ -181,11 +207,16 @@ def extract_structured_skip_features(x_raw, feature_names):
     ix = {n: j for j, n in enumerate(feature_names)}
     extra_cols = []
     extra_names = []
+    no_diab = (
+        np.isin(x_raw[:, ix["DIABETE3"]], [2, 3, 4])
+        if "DIABETE3" in ix
+        else None
+    )
+    no_ci = x_raw[:, ix["CIMEMLOS"]] == 2 if "CIMEMLOS" in ix else None
 
     # 1. DIABEYE (diabetic retinopathy) & DOCTDIAB (annual doctor visits)
     if "DIABEYE" in ix and "DIABETE3" in ix:
         diabeye = np.asarray(x_raw[:, ix["DIABEYE"]], dtype=np.float64).copy()
-        no_diab = np.isin(x_raw[:, ix["DIABETE3"]], [2, 3, 4])
         diabeye[no_diab] = 2.0  # 2 = No retinopathy
         diabeye[np.isin(diabeye, [7, 9])] = np.nan
         extra_cols.append(diabeye)
@@ -193,7 +224,6 @@ def extract_structured_skip_features(x_raw, feature_names):
 
     if "DOCTDIAB" in ix and "DIABETE3" in ix:
         docdiab = np.asarray(x_raw[:, ix["DOCTDIAB"]], dtype=np.float64).copy()
-        no_diab = np.isin(x_raw[:, ix["DIABETE3"]], [2, 3, 4])
         docdiab[no_diab] = 0.0  # 0 visits
         docdiab[docdiab == 88] = 0.0  # 88 = None
         docdiab[np.isin(docdiab, [77, 99])] = np.nan
@@ -205,8 +235,7 @@ def extract_structured_skip_features(x_raw, feature_names):
     for cdc in cd_cols:
         if cdc in ix:
             col = np.asarray(x_raw[:, ix[cdc]], dtype=np.float64).copy()
-            if "CIMEMLOS" in ix:
-                no_ci = x_raw[:, ix["CIMEMLOS"]] == 2
+            if no_ci is not None:
                 col[no_ci] = 5.0  # 5 = Never
             col[np.isin(col, [7, 9])] = np.nan
             extra_cols.append(col)
@@ -534,14 +563,7 @@ def add_derived(xc, x_raw, feature_names, with_composite=True):
         health_days = phys_clean + ment_clean
 
         cols.extend([vascular_burden, age_vascular, metabolic_index, health_days])
-        names.extend(
-            [
-                "VASCULAR_BURDEN",
-                "AGE_VASCULAR_SYNERGY",
-                "METABOLIC_INDEX",
-                "HEALTH_DAYS_BURDEN",
-            ]
-        )
+        names.extend(COMPOSITE_COLUMNS)
 
     x_out = np.column_stack(cols)
     return x_out, names
@@ -591,13 +613,7 @@ def clean_data(
 
     selected_names = [n for n in out_names if n in ix]
     if with_composite:
-        composite_names = [
-            "VASCULAR_BURDEN",
-            "AGE_VASCULAR_SYNERGY",
-            "METABOLIC_INDEX",
-            "HEALTH_DAYS_BURDEN",
-        ]
-        for cname in composite_names:
+        for cname in COMPOSITE_COLUMNS:
             if cname in ix and cname not in selected_names:
                 selected_names.append(cname)
 
@@ -606,7 +622,7 @@ def clean_data(
 
     dk_names = [n for n in raw_out if codes.get(n, {}).get("nan_codes")]
     dk = [np.isin(x_sub[:, ix[n]], codes[n]["nan_codes"]) for n in dk_names]
-    extra = [x_raw[:, feature_names.index(n)] for n in keep_raw]
+    extra = [x_raw[:, j] for j in _required_indices(feature_names, keep_raw)]
 
     xc_selected = xc[:, [ix[n] for n in selected_names]]
     xc_blocks = [xc_selected, high_auc_cols, struct_cols]
@@ -657,7 +673,7 @@ def leaky_features(x_raw, feature_names, codes=None):
           answer code, e.g. "HAREHAB1=1", and one "was answered" flag).
     """
     codes = load_special_codes() if codes is None else codes
-    cols = [feature_names.index(n) for n in LEAKY_COLUMNS]
+    cols = _required_indices(feature_names, LEAKY_COLUMNS)
     raw = np.asarray(x_raw, dtype=np.float64)[:, cols]
     clean = replace_special_codes(raw, LEAKY_COLUMNS, codes)
     answered = (~np.isnan(clean)).astype(np.float64)
@@ -697,9 +713,10 @@ def add_target_risk_encodings(
     y01_tr = (y_tr == 1).astype(np.float64)
     prior = float(np.mean(y01_tr))
     enc_tr_list, enc_te_list, enc_names = [], [], []
+    indices = _first_indices(names)
     for col_name in target_cols:
-        if col_name in names:
-            idx = names.index(col_name)
+        if col_name in indices:
+            idx = indices[col_name]
             col_tr = xc_tr[:, idx]
             col_te = xc_te[:, idx]
             cats, inv = np.unique(col_tr, return_inverse=True)
@@ -735,12 +752,7 @@ def select_columns(xc_train, names, rows, max_nan_ratio):
         # Allow high-AUC features, structured skip features, composite features, or spec non-drop features
         if name in HIGH_AUC_CDC_COLUMNS or name.endswith("_CLEAN"):
             pass
-        elif name in (
-            "VASCULAR_BURDEN",
-            "AGE_VASCULAR_SYNERGY",
-            "METABOLIC_INDEX",
-            "HEALTH_DAYS_BURDEN",
-        ):
+        elif name in COMPOSITE_COLUMNS:
             pass
         elif name in rows:
             if rows[name]["kind"] == "drop":
@@ -922,43 +934,26 @@ def corr_dedup(z, names, y, max_corr):
     return keep
 
 
+def _feature_metadata(name, rows):
+    """Resolve kind and positive values with the existing override precedence."""
+    if name in HIGH_AUC_KINDS:
+        return HIGH_AUC_KINDS[name], HIGH_AUC_POS_VALS[name]
+    if name in STRUCTURED_SKIP_KINDS:
+        return STRUCTURED_SKIP_KINDS[name], STRUCTURED_SKIP_POS_VALS[name]
+    row = rows.get(name)
+    if row is not None and row["kind"] != "drop":
+        return row["kind"], row["positive_values"]
+    return "continuous", ()
+
+
 def _fit_columns(xc_train, names, rows, cfg, y):
     """Fit column selection, imputation, one-hot and missing indicators."""
     kept = select_columns(xc_train, names, rows, cfg["max_nan_ratio"])
-    kinds = [
-        (
-            HIGH_AUC_KINDS[n]
-            if n in HIGH_AUC_KINDS
-            else (
-                STRUCTURED_SKIP_KINDS[n]
-                if n in STRUCTURED_SKIP_KINDS
-                else (
-                    rows[n]["kind"]
-                    if (n in rows and rows[n]["kind"] != "drop")
-                    else "continuous"
-                )
-            )
-        )
-        for n in kept
-    ]
-    pos_vals = [
-        (
-            HIGH_AUC_POS_VALS[n]
-            if n in HIGH_AUC_POS_VALS
-            else (
-                STRUCTURED_SKIP_POS_VALS[n]
-                if n in STRUCTURED_SKIP_POS_VALS
-                else (
-                    rows[n]["positive_values"]
-                    if (n in rows and rows[n]["kind"] != "drop")
-                    else ()
-                )
-            )
-        )
-        for n in kept
-    ]
+    metadata = [_feature_metadata(n, rows) for n in kept]
+    kinds = [kind for kind, _ in metadata]
+    pos_vals = [pos for _, pos in metadata]
     state = {
-        "kept_idx": np.array([names.index(n) for n in kept], dtype=int),
+        "kept_idx": np.array(_required_indices(names, kept), dtype=int),
         "kept_names": kept,
         "kinds": kinds,
         "positive_values": pos_vals,
@@ -1079,10 +1074,11 @@ def fit_preprocessor(
 
     state["pairs"] = []
     if cfg["interactions"]:
+        base_indices = _first_indices(base_names)
         state["pairs"] = [
-            (base_names.index(a), base_names.index(b))
+            (base_indices[a], base_indices[b])
             for a, b in INTERACTIONS
-            if a in base_names and b in base_names
+            if a in base_indices and b in base_indices
         ]
     if state["pairs"]:
         products = np.column_stack([z[:, a] * z[:, b] for a, b in state["pairs"]])
@@ -1102,9 +1098,9 @@ def fit_preprocessor(
 def transform(xc, state):
     """Transform arbitrary rows using statistics of the training rows."""
     base, _ = _base_block(xc, state)
-    z = standardize(base, state["mean"], state["std"])[:, state["keep"]]
+    raw_z = standardize(base, state["mean"], state["std"])
+    z = raw_z[:, state["keep"]]
     if state["pairs"]:
-        raw_z = standardize(base, state["mean"], state["std"])
         products = np.column_stack(
             [raw_z[:, a] * raw_z[:, b] for a, b in state["pairs"]]
         )
