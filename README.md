@@ -161,7 +161,7 @@ ML_Project1/
 ├── run_public_tests.sh            # Public autograder test runner script
 │
 ├── benchmarks/                    # Clean modular archive of experimental scripts & ablations
-│   ├── build_master_notebook.py   # Programmatic generator for the master Jupyter report
+│   ├── generate_clean_notebooks.py# Programmatic generator for the master Jupyter notebooks
 │   ├── ablation_study.py          # Progressive feature engineering ablation study (Milestone 4)
 │   ├── benchmark_baselines.py     # Rigorous 5-fold CV comparison of the 6 core methods
 │   ├── benchmark_hypotheses.py    # Milestone 5 hypothesis evaluations (WoE, Rank Blend, MLP)
@@ -185,9 +185,9 @@ ML_Project1/
 │   └── results/                   # Empirical CSV records of rejected experiments & parameter sweeps
 │
 ├── notebooks/                     # Master interactive computational narratives
-│   ├── project1_sota_report.ipynb # ALL-IN-ONE Comprehensive Master Notebook (Markdown + Code)
 │   ├── 01_eda.ipynb               # Exploratory data analysis & sentinel visualization
-│   └── 02_experiments.ipynb       # Baseline cross-validation & threshold tuning
+│   ├── 02_sota_progression.ipynb  # Primary narrative: step-by-step evolution from baseline to SOTA
+│   └── 03_negative_results.ipynb  # Comprehensive ledger of rejected hypotheses & ablation insights
 │
 ├── report/                        # 2-Page IEEE LaTeX Scientific Report
 │   ├── report.tex                 # Publication-ready LaTeX source document
@@ -220,4 +220,4 @@ ML_Project1/
 - [x] **Zero Forbidden Libraries**: Zero use of scikit-learn, pandas, or PyTorch. Pure Python + NumPy.
 - [x] **Formatting & Hygiene**: All code passes `black .` with zero errors and contains zero `TODO` comments.
 - [x] **Grading Tests**: All 27 functional tests in `../grading_tests/` pass with 100% precision.
-- [x] **Master Notebook**: All dataset analyses, baseline experiments, ablations, and comparative forensics are consolidated into [project1_sota_report.ipynb](file:///Users/zhihaochen/EPFL/S1/CS-433_ML/ML_course/projects/project1/ML_Project1/notebooks/project1_sota_report.ipynb).
+- [x] **Master Notebooks**: Step-by-step engineering progression is consolidated into [02_sota_progression.ipynb](file:///Users/zhihaochen/EPFL/S1/CS-433_ML/ML_course/projects/project1/ML_Project1/notebooks/02_sota_progression.ipynb), and negative results into [03_negative_results.ipynb](file:///Users/zhihaochen/EPFL/S1/CS-433_ML/ML_course/projects/project1/ML_Project1/notebooks/03_negative_results.ipynb).
