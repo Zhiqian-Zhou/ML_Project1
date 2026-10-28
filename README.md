@@ -160,10 +160,6 @@ ML_Project1/
 ├── helpers.py                     # CSV streaming loaders & submission writers
 ├── run_public_tests.sh            # Public autograder test runner script
 │
-├── benchmarks/                    # Utility scripts for report generation & notebook build
-│   ├── build_progressive_notebook.py # Programmatic generator for 02_experiments & 03_negative_results
-│   └── generate_report_figures.py # Script generating publication figures for the final report
-│
 ├── data/                          # Data folder (raw CSVs and processed binary caches, git-ignored)
 ├── eda/                           # CDC 2015 domain codebooks & feature specifications
 │   ├── column_decisions.csv       # Categorization of all 321 BRFSS columns
