@@ -19,6 +19,7 @@ __pycache__/
 
 # Grading tests clone
 github_workdir/
+scratch/
 
 # LaTeX build files
 report/*.aux
