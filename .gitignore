@@ -4,6 +4,7 @@ data/*
 *.zip
 *.npy
 *.npz
+!weights/*.npz
 
 # Generated submissions (track official deliverables, ignore temporary runs)
 submissions/*.csv

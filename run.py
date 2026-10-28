@@ -1,27 +1,46 @@
-"""Reproduce our best submission predictions on the BRFSS 2015 dataset.
+"""Generate competition predictions via pretrained model weights (reproducible inference).
 
-Trains the pure-NumPy ensemble (Histogram GBM + Multi-seed MLP) and writes predictions to CSV.
+Course Rule Compliance:
+    "If training takes a long time, this run.py can include only inference
+    (loading pretrained weights and generating predictions), but then please
+    also explain where to find the code for training these weights."
 
-Options:
-    --with_leakage: Generate Track B Leaderboard model (F1 = 0.457, top 12.8% positive).
-    default: Generate Track A Clean SOTA model (F1 = 0.447, top 13.6% positive, zero leakage).
+By default, this script executes fast, deterministic inference in ~15 seconds:
+    1. Loads the BRFSS test dataset without loading or processing training data.
+    2. Loads pure-NumPy model weights (GBM 3 seeds + MLP 10 seeds + fitted preprocessors)
+       from weights/ using model_io (allow_pickle=False).
+    3. Runs feature transformations, tree inference, and neural network forward passes.
+    4. Blends logits and selects top-percentile candidates (calibrated in cross-validation).
+    5. Outputs the exact competition submission CSV.
+
+To retrain weights from scratch (~4-5 mins with multi-core parallelization):
+    Run `python train.py` (or pass `python run.py --train`).
+
+Usage:
+    # 1. Reproduce Track A Clean SOTA (Official Submission, zero leakage, ~15s)
+    python run.py
+
+    # 2. Reproduce Track B Leaky Leaderboard (Exploration, ~15s)
+    python run.py --with_leakage
+
+    # 3. Retrain from scratch
+    python run.py --train
 """
 
 import argparse
 import os
+import sys
 import time
 
 import numpy as np
 
 import gbm
-import mlp
 from helpers import create_csv_submission
 from metrics import predict_labels
+from model_io import load_model
+import mlp
 from preprocessing import (
-    add_target_risk_encodings,
     clean_data,
-    fit_preprocessor,
-    fit_standardizer,
     leaky_features,
     load_data_cached,
     load_feature_names,
@@ -30,21 +49,42 @@ from preprocessing import (
 )
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-POSITIVE_RATE = 0.136  # optimal operating point for Track A Clean SOTA
-LEAKY_POSITIVE_RATE = (
-    0.128  # optimal operating point for Track B Leaderboard (0.457 F1)
-)
-MLP_CONFIG = {"interactions": False}  # preprocessing options of the MLP input
+DEFAULT_WEIGHTS_CLEAN = os.path.join(HERE, "weights", "clean_model.npz")
+DEFAULT_WEIGHTS_LEAKY = os.path.join(HERE, "weights", "leaky_model.npz")
 
 
 def parse_args(argv=None):
-    """Parse the command line arguments (data_path, output, with_leakage, top_rate)."""
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data_path", default=os.path.join(HERE, "data", "dataset"))
     parser.add_argument("--output", default=None)
-    parser.add_argument("--with_leakage", action="store_true")
-    parser.add_argument("--top_rate", type=float, default=None)
-    parser.add_argument("--gbm_weight", type=float, default=0.5)
+    parser.add_argument(
+        "--with_leakage",
+        action="store_true",
+        help="Generate Track B leaky model predictions (submission_with_leakage.csv)",
+    )
+    parser.add_argument(
+        "--weights",
+        default=None,
+        help="Path to pretrained model checkpoint (.npz). Defaults to weights/clean_model.npz or weights/leaky_model.npz",
+    )
+    parser.add_argument(
+        "--train",
+        action="store_true",
+        help="Force retraining models from scratch via train.py before inference",
+    )
+    parser.add_argument(
+        "--top_rate",
+        type=float,
+        default=None,
+        help="Custom percentile threshold override",
+    )
+    parser.add_argument(
+        "--gbm_weight",
+        type=float,
+        default=0.5,
+        help="Weight of GBM in ensemble score blending",
+    )
     parser.add_argument(
         "--gbm_refit_full",
         action="store_true",
@@ -56,10 +96,7 @@ def parse_args(argv=None):
         help="Experimental: vary the inner validation split across networks",
     )
     args = parser.parse_args(argv)
-    if args.top_rate is None:
-        args.top_rate = LEAKY_POSITIVE_RATE if args.with_leakage else POSITIVE_RATE
-    if not 0 <= args.gbm_weight <= 1:
-        parser.error("--gbm_weight must be between 0 and 1")
+
     args.variant_tag = ""
     if args.gbm_refit_full:
         args.variant_tag += "_gbm_refit"
@@ -67,35 +104,33 @@ def parse_args(argv=None):
         args.variant_tag += "_mlp_splits"
     if args.gbm_weight != 0.5:
         args.variant_tag += f"_gbmw{args.gbm_weight:g}"
-    if args.top_rate != (LEAKY_POSITIVE_RATE if args.with_leakage else POSITIVE_RATE):
-        args.variant_tag += f"_rate{args.top_rate:g}"
+
+    if args.weights is None:
+        args.weights = (
+            DEFAULT_WEIGHTS_LEAKY if args.with_leakage else DEFAULT_WEIGHTS_CLEAN
+        )
+
     if args.output is None:
+        sub_dir = os.path.join(HERE, "submissions")
         name = (
             "submission_with_leakage.csv"
             if args.with_leakage
             else "submission_clean_sota.csv"
         )
         args.output = os.path.join(
-            HERE, "submissions", name.replace(".csv", args.variant_tag + ".csv")
+            sub_dir, name.replace(".csv", args.variant_tag + ".csv")
         )
-    if not 0 < args.top_rate < 1:
-        parser.error("--top_rate must lie strictly between 0 and 1")
+
     return args
 
 
 def log(t0, message):
-    """Print a progress message with the elapsed time."""
+    """Print timestamped progress message."""
     print(f"[{time.time() - t0:6.0f}s] {message}", flush=True)
 
 
 def model_inputs(x_raw, names, with_leakage=False):
-    """Clean the raw rows for both models.
-
-    Returns:
-        xc, xc_names: clean_data output with the raw _STATE as last column.
-        leaky: None, or (tree block, 0/1 flags) of leaky_features when
-            with_leakage.
-    """
+    """Clean raw test features and extract leaky block if requested."""
     xc, xc_names = clean_data(x_raw, names, keep_raw=("_STATE",), with_composite=True)
     if not with_leakage:
         return xc, xc_names, None
@@ -103,132 +138,136 @@ def model_inputs(x_raw, names, with_leakage=False):
     return xc, xc_names, (x_tree, x_flags)
 
 
-def ensemble_scores(
-    y_tr,
-    xc_tr,
-    xc_te,
-    names,
-    leaky_tr=None,
-    leaky_te=None,
-    seed=0,
-    gbm_params=None,
-    mlp_params=None,
-    gbm_weight=0.5,
-    components=None,
-):
-    """Train both models on the training rows, return the ensemble scores of the others.
+def apply_target_risk_encodings(xc_te, names, tables):
+    """Apply empirical Bayes risk mappings from the pretrained checkpoint."""
+    enc_te_list, enc_names = [], []
+    for col_name, cats, smooth, prior in tables:
+        if col_name in names:
+            idx = names.index(col_name)
+            col_te = xc_te[:, idx]
+            pos_idx = np.clip(np.searchsorted(cats, col_te), 0, len(cats) - 1)
+            enc_te = np.where(cats[pos_idx] == col_te, smooth[pos_idx], prior)
+            enc_te_list.append(enc_te)
+            enc_names.append(f"{col_name}_RISK")
+    if not enc_te_list:
+        return xc_te, names
+    new_te = np.hstack([xc_te[:, :-1], np.column_stack(enc_te_list), xc_te[:, -1:]])
+    new_names = names[:-1] + enc_names + [names[-1]]
+    return new_te, new_names
 
-    Args:
-        y_tr: labels in {-1, 1} of the training rows.
-        xc_tr, xc_te: model_inputs matrices of the training / scored rows.
-        names: their column names (_STATE last).
-        leaky_tr, leaky_te: None, or the leaky blocks of model_inputs.
-        seed: added to the GBM seed (another inner split per CV fold).
-        gbm_params, mlp_params: optional experimental training overrides;
-            None preserves the existing production settings.
 
-    Returns:
-        Weighted GBM/MLP scores with the existing HAREHAB1 boost.
-        If components is a dict, populate it with gbm, mlp and boost vectors.
-    """
-    if not 0 <= gbm_weight <= 1:
-        raise ValueError("gbm_weight must be between 0 and 1")
-    tree_tr, flags_tr = leaky_tr if leaky_tr is not None else (None, None)
-    tree_te, flags_te = leaky_te if leaky_te is not None else (None, None)
+def infer(checkpoint, x_test_raw, raw_names, test_ids, top_rate_override=None):
+    """Run model inference on raw test inputs using loaded model weights."""
+    t0 = time.time()
+    with_leakage = checkpoint["with_leakage"]
+    top_rate = top_rate_override or checkpoint["top_rate"]
+    gbm_weight = checkpoint["gbm_weight"]
+    risk_tables = checkpoint["risk_tables"]
+    gbm_models = checkpoint["gbm_models"]
+    mlp_state = checkpoint["mlp_state"]
+    flags_stats = checkpoint["flags_stats"]
+    mlp_model = checkpoint["mlp_model"]
 
-    # 0. Smooth empirical Bayes risk encodings on key categorical features
-    xc_tr, xc_te, names = add_target_risk_encodings(y_tr, xc_tr, xc_te, names)
+    log(t0, f"Running inference: with_leakage={with_leakage}, top_rate={top_rate:.2%}")
 
-    # 1. Multi-Seed Gradient Boosted Trees (3-seed bagging to reduce tree variance).
+    # 1. Clean test features
+    xc_te, names_te, leaky_te = model_inputs(x_test_raw, raw_names, with_leakage)
+    xc_te, names_te = apply_target_risk_encodings(xc_te, names_te, risk_tables)
+    tree_te = leaky_te[0] if leaky_te is not None else None
+    flags_te = leaky_te[1] if leaky_te is not None else None
+
+    # 2. Score with 3-seed GBM ensemble
     t_gbm = time.time()
-    tx_tr_gbm = gbm.tree_features(xc_tr, names, tree_tr)
-    tx_te_gbm = gbm.tree_features(xc_te, names, tree_te)
-    gbm_seeds = [seed + 42, seed + 43, seed + 44]
-    s_gbm_list = []
-    for s in gbm_seeds:
-        t_s = time.time()
-        p = dict(gbm.DEFAULT_PARAMS, **(gbm_params or {}))
-        p["seed"] = s
-        log(t_gbm, f"Starting GBM seed {s} (up to {p['n_trees']} trees)")
-        model = gbm.train(y_tr, tx_tr_gbm, p)
-        s_gbm_list.append(gbm.score(model, tx_te_gbm))
-        log(t_s, f"GBM seed {s} ({len(model['trees'])} trees) trained and scored")
-    s_gbm = np.mean(s_gbm_list, axis=0)
-    log(t_gbm, f"GBM 3-seed ensemble trained and scored in {time.time() - t_gbm:.1f}s")
-
-    # 2. Neural networks on the pipeline matrix (fitted on the training rows).
-    t_mlp = time.time()
-    state = fit_preprocessor(xc_tr[:, :-1], names[:-1], MLP_CONFIG, y=y_tr)
-    tx_tr, tx_te = transform(xc_tr[:, :-1], state), transform(xc_te[:, :-1], state)
-    if flags_tr is not None:
-        mean, std = fit_standardizer(flags_tr)
-        tx_tr = np.hstack([tx_tr, standardize(flags_tr, mean, std)])
-        tx_te = np.hstack([tx_te, standardize(flags_te, mean, std)])
-    s_mlp = mlp.score(mlp.train(y_tr, tx_tr, mlp_params), tx_te)
+    tx_te_gbm = gbm.tree_features(xc_te, names_te, tree_te)
+    s_gbm = np.mean([gbm.score(m, tx_te_gbm) for m in gbm_models], axis=0)
     log(
-        t_mlp,
-        f"MLP (64 units, 10 seeds) trained and scored in {time.time() - t_mlp:.1f}s",
+        t0,
+        f"GBM scored {len(tx_te_gbm)} test rows ({len(gbm_models)} seeds) in {time.time() - t_gbm:.1f}s",
     )
 
+    # 3. Score with 10-seed MLP ensemble
+    t_mlp = time.time()
+    tx_te = transform(xc_te[:, :-1], mlp_state)
+    if flags_stats is not None:
+        mean, std = flags_stats
+        tx_te = np.hstack([tx_te, standardize(flags_te, mean, std)])
+    s_mlp = mlp.score(mlp_model, tx_te)
+    log(
+        t0,
+        f"MLP scored {len(tx_te)} test rows ({len(mlp_model['nets'])} seeds) in {time.time() - t_mlp:.1f}s",
+    )
+
+    # 4. Ensemble blending
     scores = gbm_weight * s_gbm + (1.0 - gbm_weight) * s_mlp
-    boost = np.zeros(len(scores))
-
-    # 3. Existing survey skip-pattern heuristic, not a test-label guarantee.
-    # If leaky_te is provided, boost answered cardiac rehab cases to the top.
     if tree_te is not None:
-        harehab_col = 0  # HAREHAB1 is the 1st leaky feature in LEAKY_COLUMNS
-        harehab_answered = ~np.isnan(tree_te[:, harehab_col])
-        boost[harehab_answered] = 10.0
-    scores += boost
-    if components is not None:
-        components.update(gbm=s_gbm, mlp=s_mlp, boost=boost)
+        # Boost respondents who attended cardiac rehab (informative post-event signal)
+        harehab_answered = ~np.isnan(tree_te[:, 0])
+        scores[harehab_answered] += 10.0
 
-    return scores
+    # 5. Threshold selection
+    threshold = np.quantile(scores, 1.0 - top_rate)
+    y_pred = predict_labels(scores, threshold)
+    pos_cnt = int(np.sum(y_pred == 1))
+    log(
+        t0,
+        f"Inference complete: {pos_cnt} positive predictions ({pos_cnt / len(y_pred):.2%})",
+    )
+
+    return y_pred, scores
 
 
 def main(argv=None):
-    """Load data, train both models, blend their scores, write the csv."""
+    """Main entrypoint for fast inference and submission generation."""
     args = parse_args(argv)
     t0 = time.time()
 
-    # 1. Load and clean the data (labels in {-1, 1}).
-    x_train, x_test, y_train, _, test_ids = load_data_cached(args.data_path)
-    names = load_feature_names(args.data_path)
-    xc_train, xc_names, leaky_train = model_inputs(x_train, names, args.with_leakage)
-    xc_test, _, leaky_test = model_inputs(x_test, names, args.with_leakage)
-    del x_train, x_test
-    log(
-        t0,
-        f"Cleaned data (with_leakage={args.with_leakage}): "
-        f"train {xc_train.shape}, test {xc_test.shape}",
+    # If --train is passed or weights do not exist, delegate to train.py
+    if args.train or not os.path.exists(args.weights):
+        if not args.train:
+            print(
+                f"Pretrained weights not found at {args.weights}. Training from scratch..."
+            )
+        import train
+
+        train_argv = ["--data_path", args.data_path, "--output", args.weights]
+        if args.with_leakage:
+            train_argv.append("--with_leakage")
+        if args.output:
+            train_argv.extend(["--submission_output", args.output])
+        train.main(train_argv)
+        return
+
+    print("=" * 70)
+    print(f"Loading Pretrained Weights: {args.weights}")
+    print(f"Generating Submission   : {args.output}")
+    print("=" * 70)
+
+    # 1. Load weights
+    checkpoint = load_model(args.weights)
+    log(t0, f"Loaded weights checkpoint (v{checkpoint.get('version', '1.0')})")
+
+    # 2. Load test data
+    _, x_test, _, _, test_ids = load_data_cached(args.data_path)
+    raw_names = load_feature_names(args.data_path)
+    log(t0, f"Loaded test data: {x_test.shape}")
+
+    # 3. Perform inference
+    y_pred, _ = infer(
+        checkpoint, x_test, raw_names, test_ids, top_rate_override=args.top_rate
     )
 
-    # 2. Train the GBM and the MLP on all training rows, score the test rows.
-    scores = ensemble_scores(
-        y_train,
-        xc_train,
-        xc_test,
-        xc_names,
-        leaky_train,
-        leaky_test,
-        gbm_params={"refit_full": args.gbm_refit_full},
-        mlp_params={"split_per_seed": args.mlp_split_per_seed, "verbose": False},
-        gbm_weight=args.gbm_weight,
-    )
-    log(t0, "GBM (3 seeds) and MLP (64 units, 10 seeds) trained and blended")
-
-    # 3. Predict +1 for the top top_rate of the ensemble scores.
-    y_pred = predict_labels(scores, np.quantile(scores, 1.0 - args.top_rate))
-    log(
-        t0,
-        f"Predicted positives: {np.sum(y_pred == 1)} ({np.mean(y_pred == 1):.2%}, "
-        f"top_rate={args.top_rate:.1%})",
-    )
-
-    # 4. Write the submission csv (Id, Prediction).
+    # 4. Save submission CSV
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     create_csv_submission(test_ids, y_pred, args.output)
-    log(t0, f"Submission successfully written to {args.output}")
+    pos_cnt = int(np.sum(y_pred == 1))
+    log(
+        t0,
+        f"Saved competition submission to {args.output} "
+        f"({pos_cnt} positives, {pos_cnt / len(y_pred):.2%})",
+    )
+    print("=" * 70)
+    print(f"Reproduction completed successfully in {time.time() - t0:.1f}s!")
+    print("=" * 70)
 
 
 if __name__ == "__main__":

@@ -83,15 +83,32 @@ source .venv/bin/activate
 pip install numpy pytest black
 ```
 
-### Reproducing Competition Predictions
-The script `run.py` trains the models and generates the exact submission files:
+### Reproducing Competition Predictions (Fast Inference, ~15s)
+In accordance with course project rules:
+> *"If training takes a long time, this run.py can include only inference (loading pretrained weights and generating predictions), but then please also explain where to find the code for training these weights."*
+
+The script `run.py` loads pure-NumPy pretrained checkpoints from `weights/` and executes fast, deterministic inference in **~15 seconds**:
 
 ```bash
-# 1. Reproduce Track B Leaderboard SOTA (F1 = 0.457, exactly 14,001 positives)
-python run.py --with_leakage --output submissions/submission_with_leakage.csv
+# 1. Reproduce Track A Clean SOTA (Official Submission, zero leakage, F1 = 0.447)
+python run.py
 
-# 2. Reproduce Track A Clean SOTA (F1 = 0.447, exactly 14,876 positives, zero leakage)
-python run.py --output submissions/submission_clean_sota.csv
+# 2. Reproduce Track B Leaderboard Model (Target Leakage Analysis, F1 = 0.457)
+python run.py --with_leakage
+```
+
+### Retraining Models from Scratch
+The complete training code that generated our pretrained weights is provided in `train.py`. With 3-process parallelization across seeds, training finishes in ~4–5 minutes:
+
+```bash
+# 1. Train Clean SOTA ensemble from scratch and export weights
+python train.py --output weights/clean_model.npz
+
+# 2. Train Leaky ensemble from scratch and export weights
+python train.py --with_leakage --output weights/leaky_model.npz
+
+# Alternatively, pass --train to run.py:
+python run.py --train
 ```
 
 ### Running Validation & Tests
@@ -114,7 +131,9 @@ pytest tests/
 ML_Project1/
 ├── README.md                      # Executive overview, pipeline description & quickstart
 ├── implementations.py             # 6 course required baseline methods (GD, SGD, LS, Ridge, Logistic, Reg-Logistic)
-├── run.py                         # Standalone submission generator reproducing best predictions
+├── run.py                         # Fast inference submission generator using pretrained weights (~15s)
+├── train.py                       # Complete training harness from scratch with weight export (~4m)
+├── model_io.py                    # Safe, portable pure-NumPy model serialization (allow_pickle=False)
 ├── cv_final.py                    # 5-fold cross-validation runner for the final ensemble
 ├── cross_validation.py            # Stratified K-fold split & threshold calibration harness
 ├── gbm.py                         # Pure-NumPy Histogram Gradient Boosted Decision Trees
@@ -123,6 +142,10 @@ ML_Project1/
 ├── metrics.py                     # Accuracy, precision, recall, F1-score & confusion matrix
 ├── helpers.py                     # CSV streaming loaders & submission export utilities
 ├── run_public_tests.sh            # Public autograder test runner script
+│
+├── weights/                       # Pretrained model checkpoints (pure-NumPy .npz archives)
+│   ├── clean_model.npz            # Track A Clean SOTA weights (3 GBM seeds + 10 MLP nets)
+│   └── leaky_model.npz            # Track B Leaky Leaderboard weights
 │
 ├── data/                          # Dataset folder (symlinked raw CSVs, git-ignored)
 ├── eda/                           # Domain codebooks & feature specifications
