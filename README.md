@@ -161,7 +161,7 @@ ML_Project1/
 ├── run_public_tests.sh            # Public autograder test runner script
 │
 ├── benchmarks/                    # Clean modular archive of experimental scripts & ablations
-│   ├── generate_clean_notebooks.py# Programmatic generator for the master Jupyter notebooks
+│   ├── build_progressive_notebook.py # Programmatic generator for the executable experiments notebook
 │   ├── ablation_study.py          # Progressive feature engineering ablation study (Milestone 4)
 │   ├── benchmark_baselines.py     # Rigorous 5-fold CV comparison of the 6 core methods
 │   ├── benchmark_hypotheses.py    # Milestone 5 hypothesis evaluations (WoE, Rank Blend, MLP)
@@ -186,7 +186,7 @@ ML_Project1/
 │
 ├── notebooks/                     # Master interactive computational narratives
 │   ├── 01_eda.ipynb               # Exploratory data analysis & sentinel visualization
-│   ├── 02_sota_progression.ipynb  # Primary narrative: step-by-step evolution from baseline to SOTA
+│   ├── 02_experiments.ipynb       # Progressive modeling: linear baselines, tuning, GBM, MLP, ensemble
 │   └── 03_negative_results.ipynb  # Comprehensive ledger of rejected hypotheses & ablation insights
 │
 ├── report/                        # 2-Page IEEE LaTeX Scientific Report
@@ -220,4 +220,4 @@ ML_Project1/
 - [x] **Zero Forbidden Libraries**: Zero use of scikit-learn, pandas, or PyTorch. Pure Python + NumPy.
 - [x] **Formatting & Hygiene**: All code passes `black .` with zero errors and contains zero `TODO` comments.
 - [x] **Grading Tests**: All 27 functional tests in `../grading_tests/` pass with 100% precision.
-- [x] **Master Notebooks**: Step-by-step engineering progression is consolidated into [02_sota_progression.ipynb](file:///Users/zhihaochen/EPFL/S1/CS-433_ML/ML_course/projects/project1/ML_Project1/notebooks/02_sota_progression.ipynb), and negative results into [03_negative_results.ipynb](file:///Users/zhihaochen/EPFL/S1/CS-433_ML/ML_course/projects/project1/ML_Project1/notebooks/03_negative_results.ipynb).
+- [x] **Master Notebooks**: Progressive model development is consolidated into [02_experiments.ipynb](file:///Users/zhihaochen/EPFL/S1/CS-433_ML/ML_course/projects/project1/ML_Project1/notebooks/02_experiments.ipynb), and negative results into [03_negative_results.ipynb](file:///Users/zhihaochen/EPFL/S1/CS-433_ML/ML_course/projects/project1/ML_Project1/notebooks/03_negative_results.ipynb).
