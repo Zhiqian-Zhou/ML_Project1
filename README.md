@@ -160,17 +160,8 @@ ML_Project1/
 ├── helpers.py                     # CSV streaming loaders & submission writers
 ├── run_public_tests.sh            # Public autograder test runner script
 │
-├── benchmarks/                    # Clean modular archive of experimental scripts & ablations
-│   ├── build_progressive_notebook.py # Programmatic generator for the executable experiments notebook
-│   ├── ablation_study.py          # Progressive feature engineering ablation study (Milestone 4)
-│   ├── benchmark_baselines.py     # Rigorous 5-fold CV comparison of the 6 core methods
-│   ├── benchmark_hypotheses.py    # Milestone 5 hypothesis evaluations (WoE, Rank Blend, MLP)
-│   ├── benchmark_m6.py            # Milestone 6 super tri-blend search
-│   ├── benchmark_m6_7.py          # Milestone 6.7 vascular conjunctions & PAVA calibration
-│   ├── benchmark_cost_sensitive.py# Cost-sensitive loss weighting evaluations
-│   ├── benchmark_exploration.py   # Bivariate feature screening & AUC evaluations
-│   ├── benchmark_cascade.py       # Sequential cascade gating experiments
-│   ├── benchmark_resampling.py    # Class balance resampling experiments
+├── benchmarks/                    # Utility scripts for report generation & notebook build
+│   ├── build_progressive_notebook.py # Programmatic generator for 02_experiments & 03_negative_results
 │   └── generate_report_figures.py # Script generating publication figures for the final report
 │
 ├── data/                          # Data folder (raw CSVs and processed binary caches, git-ignored)
@@ -180,8 +171,7 @@ ML_Project1/
 │   ├── feature_spec.csv           # Final preprocessor specification
 │   └── build_feature_spec.py      # Automated compiler for feature specifications
 │
-├── experiments/                   # Teammate empirical results ledger & validation plots
-│   ├── plots.py                   # Generation routines for validation curves & ROC curves
+├── experiments/                   # Empirical results ledger & parameter sweep logs
 │   └── results/                   # Empirical CSV records of rejected experiments & parameter sweeps
 │
 ├── notebooks/                     # Master interactive computational narratives
