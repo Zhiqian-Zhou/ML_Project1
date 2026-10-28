@@ -4,19 +4,16 @@
 
 \documentclass[10pt,conference,compsocconf]{IEEEtran}
 
+\usepackage[T1]{fontenc}
 \usepackage{cite}
-\usepackage{hyperref}
+\usepackage[hidelinks]{hyperref}
 \usepackage{graphicx}
 \usepackage{amsmath}
 \usepackage{booktabs}
 
-\setlength{\textfloatsep}{6pt plus 1pt minus 1pt}
-\setlength{\floatsep}{5pt plus 1pt minus 1pt}
-\setlength{\intextsep}{5pt plus 1pt minus 1pt}
-
 \begin{document}
 \title{Predicting Coronary Heart Disease from the BRFSS 2015 Survey\\
-  with Gradient Boosting and Neural Networks in Pure NumPy}
+  with Gradient Boosting and Neural Networks in NumPy}
 
 \author{
   \textit{Zhihao Chen, Zhiqian Zhou, Guanyu Chen}\\
@@ -26,173 +23,176 @@
 \maketitle
 
 \begin{abstract}
-  We predict coronary heart disease (\texttt{\_MICHD}) from 321 BRFSS 2015 survey
-  features ($N=328,135$, 8.83\% positive). Naive negative classification yields
-  91.17\% accuracy but trivial $F_1=0$, and uncalibrated linear models exhibit severe
-  false-negative bias ($F_1 \le 0.23$). Operating threshold calibration provides an
-  immediate +85\% relative leap ($F_1 \to 0.428$). We develop a pure-NumPy ensemble
-  combining Histogram Gradient Boosted Trees (GBM) with second-order leaf updates
-  and an Adam-trained Multi-Seed Multi-Layer Perceptron (MLP). The clean ensemble
-  achieves 5-fold CV $F_1$ of 0.437, 0.434 on holdout, and 0.447 on AIcrowd (87.7\%
-  accuracy) with zero target leakage. Seven post-cardiac event questions inflate test
-  $F_1$ to 0.457 (88.3\% accuracy), which we isolate to preserve clinical screening
-  integrity while documenting benchmark leakage.
+  We predict coronary heart disease (\texttt{\_MICHD}) from 321 answers of the BRFSS
+  2015 health survey. The task is imbalanced (8.8\% positives) and the data
+  have structured missing values and codebook special codes. We clean the
+  data column by column, compare the linear methods of the course with a
+  gradient boosted tree model (GBM) and a small neural network (MLP), and
+  average the last two. The ensemble reaches a cross-validated F1 of 0.437,
+  0.434 on a held-out set and 0.447 on AIcrowd (87.7\% accuracy). Seven survey questions asked
+  after a cardiac event raise F1 to 0.457 (88.3\% accuracy). We exclude them from the
+  official model, because they are not available when screening
+  undiagnosed people.
 \end{abstract}
 
 \section{Introduction}
-The Behavioral Risk Factor Surveillance System (BRFSS) is a nationwide US
-health survey \cite{brfss2015}. Target \texttt{\_MICHD} ($\pm 1$) records
-reported coronary heart disease or myocardial infarction (328,135 training
-rows, 109,379 test rows, 321 features). Only 8.83\% of labels are positive
-($\sim 10:1$ skew). Under this imbalance, predicting $-1$ for all rows achieves
-91.17\% accuracy yet yields $F_1 = 0$ \cite{vanrijsbergen1979}; positive-class
-$F_1$ thus guides model selection and threshold calibration \cite{fawcett2006roc}.
+The Behavioral Risk Factor Surveillance System (BRFSS) is a yearly US
+telephone survey on health and behaviour \cite{brfss2015}. The label
+\texttt{\_MICHD} states whether a respondent reported coronary heart disease
+or a myocardial infarction. The data have 328,135 training rows, 109,379
+test rows and 321 features. Only 8.83\% of the labels are positive.
+Predicting $-1$ for everyone gives 91.2\% accuracy but F1 $=0$, so we
+optimize the F1 of the positive class. Only NumPy is allowed. Our
+contributions are (i) codebook-driven cleaning, (ii) a NumPy GBM and MLP
+ensemble, and (iii) an analysis of leaky survey questions \cite{kaufman2012leakage}.
 
-Restricted to pure standard library and NumPy (no scikit-learn or PyTorch), our
-contributions are: (i) codebook-driven cleaning and skip-logic imputation;
-(ii) benchmarking six canonical linear methods \cite{cs433} and uncovering an
-+85\% gain from threshold calibration; (iii) pure-NumPy Histogram GBMs
-\cite{friedman2001greedy,chen2016xgboost} and multi-seed MLPs \cite{kingma2015adam};
-and (iv) empirical dissection of target leakage \cite{kaufman2012leakage}.
-
-\section{Data and Preprocessing}
+\section{Data and preprocessing}
 \label{sec:data}
-\textbf{Special sentinels.} The CDC codebook \cite{brfss2015codebook} specifies
-sentinels: 7/9, 77/99, 777/999 (``don't know / refused'') map to NaN; 88 and 888
-(``none / zero days / no alcohol'') map to 0. Weight and height are converted to
-kg and cm, and frequency responses mapped to uniform units.
+\textbf{Special codes.} The 2015 codebook \cite{brfss2015codebook} defines
+special codes per column. Codes 7/9, 77/99 and 777/999 (``don't know'',
+``refused'') become missing; 88 and 888 (``none'') become 0. The rule is set
+per column, because 7 or 99 are valid values in some columns. Weight and
+height are converted to kg and cm, and frequency codes to one unit.
 
-\textbf{Informative missingness \& skip logic.} 147 of 321 columns contain $>50\%$
-missing values, following structured survey logic rather than MCAR. Eleven domain
-skip-logic rules fill implied values (e.g., blood pressure medication \texttt{BPMEDS}
-filled with 0 for non-hypertensive subjects, where prevalence is 3.8\% vs.\ 16.3\%
-when observed). We append missingness masks and ``don't know'' indicator flags.
+\textbf{Missing values.} 147 of the 321 columns are more than 50\% missing.
+Most gaps follow the survey skip logic and are not random. Eleven
+skip-logic fills set the implied answer, e.g.\ ``takes blood pressure
+medication'' $=$ no when the person has no high blood pressure. Missingness
+is informative: the positive rate is 3.8\% when \texttt{BPMEDS} is missing
+and 16.3\% when it is observed. We therefore add missing-value indicators
+and one ``don't know'' flag per question.
 
-\textbf{Column selection \& pipeline.} Pruning administrative columns and features
-$>95\%$ empty leaves 75 raw features and 61 indicator flags. The pipeline applies
-median/mode imputation, one-hot encoding of common levels, $\log(1+x)$ of counts,
-clinical interactions (e.g., Blood Pressure $\times$ Cholesterol), and standard
-scaling. All statistics are fitted strictly out-of-fold.
+\textbf{Column selection.} We drop survey administration fields, columns
+more than 95\% empty and redundant recodes. The cleaned matrix keeps 75 raw
+and 2 derived features plus 61 ``don't know'' flags (138 columns).
 
-\section{Models and Validation Protocol}
+\textbf{Fitted pipeline.} Median or mode imputation, one-hot encoding of
+nominal columns (rare levels pooled), $\log(1+x)$ of counts, clinical
+interactions and standardization give about 140 columns. All statistics are
+fitted on the training folds only.
+
+\section{Models and validation}
 \label{sec:models}
-\textbf{Validation protocol.} We hold out a stratified 20\% split (65,627 rows,
-seed 2026). All modeling decisions and hyperparameter searches use 5-fold
-stratified cross-validation (CV) on the remaining 262,508 development rows.
-Preprocessing, target encodings, and decision thresholds are fitted inside each
-fold. A modification is accepted only if mean CV $F_1$ rises by $\ge 0.001$ and
-wins on $\ge 4/5$ folds. No selection uses the test set or AIcrowd.
+\textbf{Validation protocol.} We hold out a stratified 20\% of the training
+rows (65,627 rows, seed 2026). All choices use 5-fold stratified
+cross-validation (CV) on the remaining 262,508 development rows.
+Preprocessing, the state encoding, the models and the decision rule are
+fitted inside each fold. A change is accepted only if mean F1 rises by at
+least 0.001 and it wins on at least 4 of 5 folds. No choice uses AIcrowd or
+the test set.
 
-\textbf{Linear baselines \& calibration.} We train the six required methods
-from \cite{cs433} on standardized features with 10 clinical interactions. Under
-regularized logistic loss $\mathcal{L}(w)=\frac{1}{N}\sum_{n=1}^N
-\left[\log(1+e^{x_n^\top w})-y_n x_n^\top w\right]+\lambda\|w\|_2^2$,
-the default cutoff ($\hat{y} \ge 0.5$) yields $F_1 = 0.2311$ due to extreme
-false-negative bias under the 8.83\% prior. Calibrating the decision cutoff
-$\tau^* \approx 0.218$ yields an immediate +85\% relative surge to
-$F_1 = 0.428-0.430$ \cite{fawcett2006roc}.
+\textbf{Linear baselines.} We train the six course methods of
+\texttt{implementations.py} on the fitted pipeline with 10 pairwise
+interactions. Labels are $\pm1$ for squared loss and $\{0,1\}$ for logistic
+loss. With the default 0.5 threshold, the logistic model reaches F1 0.23;
+tuning the decision threshold jumps to F1 0.430. Every linear model
+requires a tuned decision rule.
 
-\textbf{Histogram GBM.} Our pure-NumPy tree booster minimizes logistic loss
-with second-order Newton leaf updates $\Delta w = -G/(H+\lambda)$
-\cite{chen2016xgboost}. Features are binned into 64 histogram bins. Missing
-values form a dedicated bin, with each split learning the optimal descent
-direction. Hyperparameters: depth 5, learning rate 0.05, row/column subsampling
-0.7/0.8, min 200 leaf samples, and $\lambda=5.0$. Early stopping evaluates an
-inner 20\% split. State of residence (\texttt{\_STATE}) is encoded via empirical
-Bayes smoothed target prevalence (+0.0026 $F_1$, 4/5 folds). Bagged over 3 seeds.
+\textbf{Gradient boosted trees.} Our NumPy GBM minimizes logistic loss
+with second-order (Newton) leaf values $-G/(H+\lambda)$. Features are binned
+into 64 histogram bins. Missing values form their own bin, with optimal
+split directions learned automatically. Trees have depth 5, learning rate 0.05, row and
+column subsampling 0.7 and 0.8, at least 200 rows per leaf and $\lambda=5$.
+Early stopping uses an inner 20\% split. The state of residence is replaced
+by its smoothed prevalence, fitted on the training folds (+0.0026 F1, 4/5
+folds).
 
-\textbf{Neural network.} The MLP features a 64-unit ReLU hidden layer, trained
-with Adam \cite{kingma2015adam} (learning rate $10^{-3}$, batch size 512, weight
-decay $10^{-3}$) and inner early stopping. Output logits are averaged across 10
-distinct random seeds to suppress stochastic initialization variance.
+\textbf{Neural network.} The MLP has one hidden layer of 64 ReLU units. It is
+trained with Adam (learning rate $10^{-3}$, batch 512), weight decay
+$10^{-3}$ and early stopping. We average the logits of 10 seeds.
 
-\textbf{Ensemble \& decision rule.} The ensemble blends logits:
-$s = 0.5\,s_{\text{GBM}} + 0.5\,s_{\text{MLP}}$. We assign $+1$ to the top
-13.6\%--14.0\% highest scores. Percentile thresholding is more invariant to
-post-retraining score scale drift than a static cutoff. Fig.~\ref{fig:share}
-illustrates that $F_1$ forms a stable plateau between 12\% and 16\%.
+\textbf{Ensemble and decision rule.} The final prediction score is
+$0.5\,s_{\text{GBM}}+0.5\,s_{\text{MLP}}$ (logits). We predict $+1$ for the
+top 14\% of respondents. The share is more robust than a fixed
+threshold under retraining. Fig.~\ref{fig:share} shows that F1 remains flat between 12\% and 16\%.
 
 \begin{figure}[tbp]
   \centering
-  \includegraphics[width=0.75\columnwidth]{figures/f1_vs_share.pdf}
+  \includegraphics[width=0.72\columnwidth]{figures/f1_vs_share.pdf}
   \vspace{-2mm}
-  \caption{5-fold CV $F_1$ across positive shares. Dotted: prevalence (8.83\%). Dashed: selected share (14\%).}
+  \caption{CV F1 (mean $\pm$ std over 5 folds) as a function of the share
+    of rows predicted positive. Dotted: prevalence (8.83\%). Dashed: our
+    choice (14\%).}
   \label{fig:share}
+  \vspace{-2mm}
 \end{figure}
 
-\section{Results and Ablations}
-Table~\ref{tab:results} summarizes validation metrics across all models.
-Squared loss reaches $F_1 \approx 0.422$; logistic loss adds $+0.008$.
-Both non-linear models beat linear baselines, and their ensemble is best.
-Out-of-fold logit correlation between GBM and MLP is 0.976.
+\section{Results}
+Table~\ref{tab:results} compares all models on the same folds. Squared-loss
+methods reach 0.422. The logistic loss adds 0.008. Both non-linear models
+beat the linear baselines, and their average is best. The out-of-fold
+scores of the GBM and the MLP are correlated at 0.976, which limits the gain
+of the ensemble.
 
 \begin{table}[tbp]
   \centering
-  \footnotesize
-  \setlength{\tabcolsep}{4pt}
-  \caption{Positive-class $F_1$ on development rows (5-fold CV, mean $\pm$ std,
-    top 14\% positive) and holdout evaluation.}
+  \caption{F1 of the positive class. CV: 5-fold on the development rows,
+    mean $\pm$ std, top 14\% predicted positive.}
   \label{tab:results}
+  \setlength{\tabcolsep}{3.5pt}
   \begin{tabular}{lcc}
     \toprule
     Model                              & CV F1                & Held-out \\
     \midrule
-    Always $-1$ (Acc: 91.17\%)         & 0.0000               & 0.0000   \\
-    Least squares / ridge / MSE GD     & $0.4216 \pm 0.0034$  & --       \\
-    MSE SGD (slow convergence)         & $0.3853 \pm 0.0085$  & --       \\
+    Always $-1$                        & 0.000                & 0.000    \\
+    Least squares / Ridge / MSE GD     & $0.4216 \pm 0.0034$  & --       \\
+    MSE SGD (not converged)            & $0.3853 \pm 0.0085$  & --       \\
     Logistic regression (GD)           & $0.4302 \pm 0.0047$  & --       \\
     Reg.\ logistic regression          & $0.4300 \pm 0.0044$  & 0.4277   \\
-    Histogram GBM (3 seeds)            & $0.4354 \pm 0.0032$  & 0.4343   \\
+    GBM (3 seeds)                      & $0.4354 \pm 0.0032$  & 0.4343   \\
     MLP (10 seeds)                     & $0.4334 \pm 0.0026$  & 0.4310   \\
     \midrule
-    \textbf{GBM + MLP (Final Clean)}   & $\mathbf{0.4368 \pm 0.0026}$
+    \textbf{GBM + MLP (final clean)}   & $\mathbf{0.4368 \pm 0.0026}$
                                        & \textbf{0.4340}                 \\
     \bottomrule
   \end{tabular}
+  \vspace{-2mm}
 \end{table}
 
-On held-out rows, the clean ensemble achieves precision 0.354, recall 0.561,
-and $F_1 = 0.4340$. On AIcrowd, it scores $F_1 = 0.447$ and 87.7\% accuracy.
-The gap with CV is within two bootstrap standard deviations ($\sigma \approx 0.005$).
+On the held-out rows the clean model has precision 0.354 and recall 0.561.
+On AIcrowd it scores F1 0.447 and accuracy 87.7\%. The gap with CV is about
+two bootstrap standard deviations of the public F1 (sd 0.005).
 
-\textbf{Rejected alternatives.} The following failed our acceptance rule:
-SMOTE resampling crashed $F_1$ to 0.285 (precision fell to 18.2\%); deeper
-2-layer MLPs [128, 64] dropped CV $F_1$ to 0.4272 (overfitting train $F_1$ to
-0.485); class weighting ($w_{\text{pos}}=2.0$) and rank normalization dropped
-$F_1$ by $-0.003$; PCA dropped $F_1$ by $-0.015$; full-row GBM refitting dropped
-$-0.0010$; seed-diversified splits (\texttt{split\_per\_seed}) saw paired
-bootstrap intervals cross zero; and stacking meta-models ($-0.0006$) overfit.
+\textbf{Rejected alternatives.} None of the following passed the acceptance
+rule: SMOTE resampling (F1 fell to 0.285); 2-layer MLPs (0.4272);
+class weights ($-0.003$) and focal loss ($-0.021$); rank normalization ($-0.003$);
+PCA ($-0.015$); feature selection; composite features ($-0.0008$);
+crossed target encodings ($-0.0010$); refitting GBM on 100\% rows ($-0.0010$);
+Naive Bayes ($-0.016$), random forest and $k$-NN; stacking; and per-group shares ($-0.001$).
 
-\textbf{Feature importance.} Permutation AUC drops identify primary predictors:
-age (0.035), general health (0.021), sex (0.018), high cholesterol (0.009),
-and prior stroke (0.008, empirical odds lift 4.24).
+\textbf{Important features.} The largest drops in AUC when a feature is
+permuted come from age (0.035), general health (0.021), sex (0.018), high
+cholesterol (0.009) and prior stroke (0.008). Simple rules agree: a prior
+stroke has a lift of 4.24, and five or more chronic conditions a lift of 3.72.
 
-\section{Target Leakage Analysis}
-Seven questions relate strictly to post-cardiac events or subsequent therapy:
-cardiac and stroke rehabilitation (\texttt{HAREHAB1}, \texttt{STREHAB1}), and
-prescribed aspirin regimen (\texttt{CVDASPRN}, \texttt{RDUCHART}, \texttt{RDUCSTRK},
-\texttt{RLIVPAIN}, \texttt{ASPUNSAF}). Their predictive power represents target
-leakage \cite{kaufman2012leakage}: 100\% of respondents who answered
-\texttt{HAREHAB1} (773/773 in training, 158/158 in held-out) test positive.
-\texttt{STREHAB1} has a 36\% positive rate, and the aspirin indicators 5\%--21\%.
+\section{Leaky questions}
+Seven questions are asked after a cardiac event or concern its treatment:
+cardiac and stroke rehabilitation (\texttt{HAREHAB1}, \texttt{STREHAB1}),
+and aspirin use and its reasons (\texttt{CVDASPRN}, \texttt{RDUCHART},
+\texttt{RDUCSTRK}, \texttt{RLIVPAIN}, \texttt{ASPUNSAF}). Their strength
+differs. All 615 development respondents who answered \texttt{HAREHAB1} are
+positive (158 of 158 in the held-out set). \texttt{STREHAB1} has a positive
+rate of 36\%, the other five 5--21\%. Such features are a form of target
+leakage \cite{kaufman2012leakage}.
 
-Table~\ref{tab:leak} demonstrates that including these questions lifts every
-model by 0.009 to 0.012 $F_1$ across all 5 folds. The leaky ensemble attains
-$F_1 = 0.457$ and 88.3\% accuracy on AIcrowd.
+Table~\ref{tab:leak} shows that adding them improves every model by 0.009
+to 0.012, on 5 of 5 folds. \texttt{HAREHAB1} alone gives +0.008, and the
+aspirin items +0.004 more. On AIcrowd, the leaky ensemble scores F1 0.457
+and accuracy 88.3\%.
 
-However, screening models target undiagnosed individuals who cannot have
-received cardiac rehabilitation; hence, these answers do not exist at inference
-time. We therefore designate the zero-leakage model as our official submission
-(\texttt{run.py}) and report the leaky variant separately
-(\texttt{run.py --with\_leakage}) to transparently quantify benchmark leakage.
+The gain is real for this benchmark, but it depends on the context of use.
+A screening model is meant for people without a diagnosis. These people
+have never been offered cardiac rehabilitation, so the answer that drives
+the gain does not exist for them. We therefore keep the clean model as our
+official submission and report the leaky variant separately
+(\texttt{run.py --with\_leakage}).
 
 \begin{table}[tbp]
   \centering
-  \footnotesize
-  \caption{Clean screening model vs.\ leaky variant. Nested CV ablation across
-    model families (Clean $\to$ Leaky).}
+  \caption{Clean (official) model vs.\ the leaky variant. Ablation: nested
+    CV F1, clean $\rightarrow$ leaky.}
   \label{tab:leak}
-  \setlength{\tabcolsep}{6pt}
+  \setlength{\tabcolsep}{5pt}
   \begin{tabular}{lcc}
     \toprule
     Model            & CV F1                & Held-out \\
@@ -207,21 +207,27 @@ time. We therefore designate the zero-leakage model as our official submission
     GBM + MLP        & \multicolumn{2}{l}{$0.4366 \rightarrow 0.4452$ (+0.009)} \\
     \bottomrule
   \end{tabular}
+  \vspace{-2mm}
 \end{table}
 
 \section{Discussion}
-All architectures plateau at $F_1 \approx 0.42$--$0.44$, highlighting the ceiling of
-self-reported survey data. False negatives predominantly stem from asymptomatic
-presentations: 56\% are female, 40\% non-hypertensive, 36\% report good/excellent
-health, and 96\% have no stroke history. Detecting such silent cases requires
-clinical biomarkers (troponin, ECG, lipid panels) unavailable in phone surveys.
+All model families reach a similar F1 of 0.42--0.44, suggesting a
+ceiling for self-reported survey data. Most errors are ``silent'' cases:
+among false negatives, 56\% are women, 40\% lack high blood pressure, 36\%
+report excellent or very good health, and 96\% report no prior stroke. These
+respondents provide little signal. Higher recall would require clinical
+measurements such as blood pressure, lipids, or an ECG. The public
+leaderboard is also noisy: a 0.5-point shift in test prevalence moves F1
+by roughly 0.01.
 
 \section{Summary}
-Our pure-NumPy ensemble of Histogram Gradient Boosted Trees and an Adam-trained MLP,
-backed by codebook cleaning and threshold calibration, reaches $F_1 = 0.434$ on holdout
-and $0.447$ on AIcrowd (87.7\% accuracy). Post-cardiac event questions inflate $F_1$
-to $0.457$ (88.3\% accuracy), which we isolate to preserve screening validity.
+A NumPy ensemble of gradient boosted trees and a neural network, combined with
+codebook cleaning, reaches F1 0.434 on held-out data and 0.447 on AIcrowd
+(87.7\% accuracy). Survey questions asked after a cardiac event add about
+0.01 F1, reaching 0.457 on AIcrowd (88.3\% accuracy). We exclude them from
+screening, as they are unavailable for undiagnosed individuals.
 
+\newpage
 \bibliographystyle{IEEEtran}
 \bibliography{literature}
 
