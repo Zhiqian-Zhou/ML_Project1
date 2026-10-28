@@ -144,8 +144,7 @@ ML_Project1/
 │
 ├── submissions/                   # Official prediction submissions
 │   ├── submission_with_leakage.csv# Track B Leaderboard Model (0.457 F1, 14,001 positives)
-│   ├── submission_clean_sota.csv  # Track A Clean SOTA Model (0.447 F1, 14,876 positives)
-│   └── README.md                  # Submission log tracking
+│   └── submission_clean_sota.csv  # Track A Clean SOTA Model (0.447 F1, 14,876 positives)
 │
 ├── tests/                         # Unit tests (7/7 passed)
 │   ├── test_preprocessing.py      # Zero-leakage pipeline assertions
