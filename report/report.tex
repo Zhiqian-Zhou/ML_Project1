@@ -10,6 +10,10 @@
 \usepackage{amsmath}
 \usepackage{booktabs}
 
+\setlength{\textfloatsep}{6pt plus 1pt minus 1pt}
+\setlength{\floatsep}{5pt plus 1pt minus 1pt}
+\setlength{\intextsep}{5pt plus 1pt minus 1pt}
+
 \begin{document}
 \title{Predicting Coronary Heart Disease from the BRFSS 2015 Survey\\
   with Gradient Boosting and Neural Networks in Pure NumPy}
@@ -22,61 +26,53 @@
 \maketitle
 
 \begin{abstract}
-  We predict coronary heart disease (\texttt{\_MICHD}) from 321 answers in the
-  BRFSS 2015 survey ($N=328,135$). The task exhibits severe class skew (8.83\%
-  positives). A naive negative classifier attains 91.17\% accuracy but trivial
-  $F_1=0$, and uncalibrated linear models suffer severe false-negative bias
-  ($F_1 \le 0.23$). We clean structured sentinels and skip-logic patterns,
-  benchmark the course linear methods, and demonstrate that operating threshold
-  calibration provides an immediate +85\% relative $F_1$ leap ($F_1 \to 0.428$).
-  We develop a pure-NumPy ensemble combining Histogram Gradient Boosted Trees
-  (GBM) with second-order leaf updates and Multi-Seed Multi-Layer Perceptrons
-  (MLP) trained via Adam. The clean ensemble achieves 5-fold cross-validated
-  $F_1$ of 0.437, 0.434 on held-out data, and 0.448 on AIcrowd (87.8\% accuracy)
-  with zero leakage. Seven post-cardiac event questions inflate test $F_1$ to
-  0.457 (88.6\% accuracy). We isolate these to preserve clinical screening
-  validity while documenting benchmark leakage.
+  We predict coronary heart disease (\texttt{\_MICHD}) from 321 BRFSS 2015 survey
+  features ($N=328,135$, 8.83\% positive). Naive negative classification yields
+  91.17\% accuracy but trivial $F_1=0$, and uncalibrated linear models exhibit severe
+  false-negative bias ($F_1 \le 0.23$). Operating threshold calibration provides an
+  immediate +85\% relative leap ($F_1 \to 0.428$). We develop a pure-NumPy ensemble
+  combining Histogram Gradient Boosted Trees (GBM) with second-order leaf updates
+  and an Adam-trained Multi-Seed Multi-Layer Perceptron (MLP). The clean ensemble
+  achieves 5-fold CV $F_1$ of 0.437, 0.434 on holdout, and 0.448 on AIcrowd (87.8\%
+  accuracy) with zero target leakage. Seven post-cardiac event questions inflate test
+  $F_1$ to 0.457 (88.6\% accuracy), which we isolate to preserve clinical screening
+  integrity while documenting benchmark leakage.
 \end{abstract}
 
 \section{Introduction}
 The Behavioral Risk Factor Surveillance System (BRFSS) is a nationwide US
-health survey \cite{brfss2015}. The binary target \texttt{\_MICHD} ($\pm 1$)
-records whether a respondent reported coronary heart disease or myocardial
-infarction. The dataset comprises 328,135 training rows, 109,379 test rows,
-and 321 raw features. Only 8.83\% of labels are positive ($\sim 10:1$ skew).
-Under this imbalance, predicting $-1$ for all rows achieves 91.17\% accuracy
-yet yields $F_1 = 0$ \cite{vanrijsbergen1979}. Hence, positive-class $F_1$
-guides all model selection and calibration \cite{fawcett2006roc}.
+health survey \cite{brfss2015}. Target \texttt{\_MICHD} ($\pm 1$) records
+reported coronary heart disease or myocardial infarction (328,135 training
+rows, 109,379 test rows, 321 features). Only 8.83\% of labels are positive
+($\sim 10:1$ skew). Under this imbalance, predicting $-1$ for all rows achieves
+91.17\% accuracy yet yields $F_1 = 0$ \cite{vanrijsbergen1979}; positive-class
+$F_1$ thus guides model selection and threshold calibration \cite{fawcett2006roc}.
 
-Under the course constraint of using pure standard library and NumPy
-(no scikit-learn, PyTorch, or pandas), our contributions are: (i) codebook-driven
-cleaning and skip-logic imputation; (ii) benchmarking the six canonical linear
-methods \cite{cs433} and discovering the +85\% gain from threshold calibration;
-(iii) designing pure-NumPy Histogram GBMs \cite{friedman2001greedy,chen2016xgboost}
-and multi-seed MLPs \cite{kingma2015adam}; and (iv) an empirical dissection of
-post-event target leakage \cite{kaufman2012leakage}.
+Restricted to pure standard library and NumPy (no scikit-learn or PyTorch), our
+contributions are: (i) codebook-driven cleaning and skip-logic imputation;
+(ii) benchmarking six canonical linear methods \cite{cs433} and uncovering an
++85\% gain from threshold calibration; (iii) pure-NumPy Histogram GBMs
+\cite{friedman2001greedy,chen2016xgboost} and multi-seed MLPs \cite{kingma2015adam};
+and (iv) empirical dissection of target leakage \cite{kaufman2012leakage}.
 
 \section{Data and Preprocessing}
 \label{sec:data}
 \textbf{Special sentinels.} The CDC codebook \cite{brfss2015codebook} specifies
-sentinels per column: 7/9, 77/99, 777/999 (``don't know / refused'') map to NaN;
-88 and 888 (``none / zero days / no alcohol'') map to 0. Weight and height are
-standardized to kg and cm, and frequency responses mapped to uniform units.
+sentinels: 7/9, 77/99, 777/999 (``don't know / refused'') map to NaN; 88 and 888
+(``none / zero days / no alcohol'') map to 0. Weight and height are converted to
+kg and cm, and frequency responses mapped to uniform units.
 
-\textbf{Informative missingness \& skip logic.} 147 of the 321 columns contain
-$>50\%$ missing values, largely following questionnaire skip patterns rather
-than being missing completely at random. Eleven domain skip-logic fills impute
-structurally implied values: e.g., blood pressure medication (\texttt{BPMEDS})
-is imputed to 0 for non-hypertensive subjects, whose positive prevalence is 3.8\%
-compared to 16.3\% when observed. We append missingness indicator flags and
-question-level ``don't know'' indicators.
+\textbf{Informative missingness \& skip logic.} 147 of 321 columns contain $>50\%$
+missing values, following structured survey logic rather than MCAR. Eleven domain
+skip-logic rules fill implied values (e.g., blood pressure medication \texttt{BPMEDS}
+filled with 0 for non-hypertensive subjects, where prevalence is 3.8\% vs.\ 16.3\%
+when observed). We append missingness masks and ``don't know'' indicator flags.
 
-\textbf{Column selection \& pipeline.} We remove administrative variables,
-features $>95\%$ empty, and redundant recodes, retaining 75 raw features and
-61 indicator flags. The pipeline applies median/mode imputation, one-hot encoding
-of high-frequency levels, $\log(1+x)$ scaling of skewed counts, clinical
-interactions (e.g., Blood Pressure $\times$ Cholesterol), and standardization.
-All preprocessing statistics are fitted strictly out-of-fold.
+\textbf{Column selection \& pipeline.} Pruning administrative columns and features
+$>95\%$ empty leaves 75 raw features and 61 indicator flags. The pipeline applies
+median/mode imputation, one-hot encoding of common levels, $\log(1+x)$ of counts,
+clinical interactions (e.g., Blood Pressure $\times$ Cholesterol), and standard
+scaling. All statistics are fitted strictly out-of-fold.
 
 \section{Models and Validation Protocol}
 \label{sec:models}
@@ -89,11 +85,8 @@ wins on $\ge 4/5$ folds. No selection uses the test set or AIcrowd.
 
 \textbf{Linear baselines \& calibration.} We train the six required methods
 from \cite{cs433} on standardized features with 10 clinical interactions. Under
-regularized logistic loss:
-\begin{equation}
-  \mathcal{L}(w)=\tfrac{1}{N}\textstyle\sum_{n=1}^N
-  \left[\log(1+e^{x_n^\top w})-y_n x_n^\top w\right]+\lambda\|w\|_2^2 ,
-\end{equation}
+regularized logistic loss $\mathcal{L}(w)=\frac{1}{N}\sum_{n=1}^N
+\left[\log(1+e^{x_n^\top w})-y_n x_n^\top w\right]+\lambda\|w\|_2^2$,
 the default cutoff ($\hat{y} \ge 0.5$) yields $F_1 = 0.2311$ due to extreme
 false-negative bias under the 8.83\% prior. Calibrating the decision cutoff
 $\tau^* \approx 0.218$ yields an immediate +85\% relative surge to
@@ -121,21 +114,22 @@ illustrates that $F_1$ forms a stable plateau between 12\% and 16\%.
 
 \begin{figure}[tbp]
   \centering
-  \includegraphics[width=\columnwidth]{figures/f1_vs_share.pdf}
-  \caption{5-fold CV $F_1$ (mean $\pm$ std) across positive prediction shares.
-    Dotted: prevalence (8.83\%). Dashed: selected operating share (14\%).}
+  \includegraphics[width=0.75\columnwidth]{figures/f1_vs_share.pdf}
+  \vspace{-2mm}
+  \caption{5-fold CV $F_1$ across positive shares. Dotted: prevalence (8.83\%). Dashed: selected share (14\%).}
   \label{fig:share}
 \end{figure}
 
 \section{Results and Ablations}
 Table~\ref{tab:results} summarizes validation metrics across all models.
-Squared-loss methods reach $F_1 \approx 0.422$. Logistic loss adds $+0.008$.
-Both non-linear models outperform linear baselines, and their ensemble achieves
-the highest performance. The out-of-fold logit correlation between the GBM and
-MLP is 0.976.
+Squared loss reaches $F_1 \approx 0.422$; logistic loss adds $+0.008$.
+Both non-linear models beat linear baselines, and their ensemble is best.
+Out-of-fold logit correlation between GBM and MLP is 0.976.
 
 \begin{table}[tbp]
   \centering
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
   \caption{Positive-class $F_1$ on development rows (5-fold CV, mean $\pm$ std,
     top 14\% positive) and holdout evaluation.}
   \label{tab:results}
@@ -162,11 +156,11 @@ and $F_1 = 0.4340$. On AIcrowd, it scores $F_1 = 0.448$ and 87.8\% accuracy.
 The gap with CV is within two bootstrap standard deviations ($\sigma \approx 0.005$).
 
 \textbf{Rejected alternatives \& coverage analysis.} The following failed our
-acceptance criteria: class weighting ($-0.003$) and focal loss ($-0.021$); PCA
-($0.403$--$0.413$); explicit feature selection; arbitrary crossed encodings;
-refitting GBMs on 100\% rows ($-0.0010$); seed-diversified inner splits
-(\texttt{split\_per\_seed}, where paired 95\% bootstrap intervals crossed zero);
-stacking, Naive Bayes ($-0.016$), and group-stratified thresholds ($-0.001$).
+acceptance rule: class weighting ($-0.003$), focal loss ($-0.021$), PCA
+($0.403$--$0.413$), feature selection, crossed target encodings, full-row GBM
+refitting ($-0.0010$), seed-diversified splits (\texttt{split\_per\_seed}, paired
+bootstrap intervals crossed zero), stacking, Naive Bayes ($-0.016$), and group
+thresholds ($-0.001$).
 
 \textbf{Feature importance.} Permutation AUC drops identify primary predictors:
 age (0.035), general health (0.021), sex (0.018), high cholesterol (0.009),
@@ -185,14 +179,15 @@ Table~\ref{tab:leak} demonstrates that including these questions lifts every
 model by 0.009 to 0.012 $F_1$ across all 5 folds. The leaky ensemble attains
 0.457 on AIcrowd (88.6\% accuracy).
 
-However, screening models are intended for undiagnosed individuals. Such
-patients have never been prescribed cardiac rehabilitation; hence, these answers
-do not exist at inference time. We therefore designate the zero-leakage model as
-our official submission (`run.py`) and report the leaky variant separately
-(`run.py --with_leakage`) to transparently quantify benchmark leakage.
+However, screening models target undiagnosed individuals who cannot have
+received cardiac rehabilitation; hence, these answers do not exist at inference
+time. We therefore designate the zero-leakage model as our official submission
+(\texttt{run.py}) and report the leaky variant separately
+(\texttt{run.py --with\_leakage}) to transparently quantify benchmark leakage.
 
 \begin{table}[tbp]
   \centering
+  \footnotesize
   \caption{Clean screening model vs.\ leaky variant. Nested CV ablation across
     model families (Clean $\to$ Leaky).}
   \label{tab:leak}
@@ -214,19 +209,17 @@ our official submission (`run.py`) and report the leaky variant separately
 \end{table}
 
 \section{Discussion}
-All architectures plateau at $F_1 \approx 0.42$--$0.44$, revealing the empirical
-ceiling of self-reported behavioral surveys. Error analysis reveals that false
-negatives stem from asymptomatic cases: 56\% are female, 40\% lack hypertension,
-36\% self-report excellent/good health, and 96\% have no stroke history.
-Detecting these silent presentations requires objective physiological biomarkers
-(e.g., troponin, ECG, blood lipid panels) unavailable in phone surveys.
+All architectures plateau at $F_1 \approx 0.42$--$0.44$, highlighting the ceiling of
+self-reported survey data. False negatives predominantly stem from asymptomatic
+presentations: 56\% are female, 40\% non-hypertensive, 36\% report good/excellent
+health, and 96\% have no stroke history. Detecting such silent cases requires
+clinical biomarkers (troponin, ECG, lipid panels) unavailable in phone surveys.
 
 \section{Summary}
-A pure-NumPy ensemble combining Histogram Gradient Boosted Trees and a Multi-Seed
-Neural Network with codebook-driven cleaning achieves $F_1 = 0.434$ on held-out data
-and $0.448$ on AIcrowd (87.8\% accuracy). Post-cardiac event questions inflate
-$F_1$ to $0.457$ (88.6\% accuracy), which we isolate to maintain clinical screening
-soundness while documenting survey leakage.
+Our pure-NumPy ensemble of Histogram Gradient Boosted Trees and an Adam-trained MLP,
+backed by codebook cleaning and threshold calibration, reaches $F_1 = 0.434$ on holdout
+and $0.448$ on AIcrowd (87.8\% accuracy). Post-cardiac event questions inflate $F_1$
+to $0.457$ (88.6\% accuracy), which we isolate to preserve screening validity.
 
 \bibliographystyle{IEEEtran}
 \bibliography{literature}
