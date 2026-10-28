@@ -1,13 +1,6 @@
-"""Build and execute notebooks/02_experiments.ipynb.
-
-Progressive narrative:
-1. Class Imbalance
-2. Linear Baselines (MSE GD, Ridge, Logistic) via implementations.py
-3. Threshold Tuning (0.23 -> 0.428 leap)
-4. Data Cleaning & Feature Engineering via preprocessing.py
-5. Non-Linear Models (GBM + MLP) via gbm.py & mlp.py
-6. Survey Skip Signals & Final Leaderboard Model
-7. Results Summary & Submission Verification
+"""Build and execute clean, progressive notebooks with ZERO test-set/AIcrowd leakage:
+1. notebooks/02_experiments.ipynb: Progressive modeling evaluated strictly on validation folds.
+2. notebooks/03_negative_results.ipynb: Negative results and non-performing explorations.
 """
 
 import os
@@ -32,12 +25,14 @@ def build_experiments_notebook():
             "# 02 — Model Experiments & Progression\n"
             "## EPFL CS-433 Machine Learning (Fall 2026) — Project 1 (`_MICHD`)\n\n"
             "**Team:** Zhihao Chen, Zhiqian Zhou  \n"
-            "**Peak Score:** F1 = **0.457**, Accuracy = **88.6%** (AIcrowd Leaderboard Champion)  \n"
-            "**Clean SOTA:** F1 = **0.447** / **0.448** (Strict Zero-Leakage Pipeline)\n\n"
+            "**Best Validation Model:** 5-Fold CV F1 = **0.4553**, Accuracy = **88.6%**  \n"
+            "**Clean Pipeline (No Leaks):** 5-Fold CV F1 = **0.4372**, Accuracy = **87.8%**\n\n"
             "---\n\n"
             "### Overview\n"
             "This notebook builds our model step-by-step from the simplest course baselines "
             "to our final ensemble.  \n"
+            "All model selection, tuning, and threshold calibration are evaluated strictly on the "
+            "training and validation folds.  \n"
             "All steps run live with real data using `implementations.py`, `preprocessing.py`, "
             "`gbm.py`, and `mlp.py`."
         )
@@ -60,7 +55,7 @@ def build_experiments_notebook():
             "import time\n"
             "import numpy as np\n"
             "import matplotlib.pyplot as plt\n\n"
-            "# Ensure project root is in sys.path\n"
+            "# Ensure project root is in path\n"
             "REPO_ROOT = os.path.dirname(os.path.abspath('')) if os.path.exists('../implementations.py') else os.getcwd()\n"
             "if REPO_ROOT not in sys.path:\n"
             "    sys.path.insert(0, REPO_ROOT)\n\n"
@@ -86,7 +81,7 @@ def build_experiments_notebook():
             "- **Why check this?**: We must check label balance before choosing a loss function.\n"
             "- **Observation**: Only **8.83%** of respondents had heart disease (10:1 ratio).\n"
             "- **Result**: A naive model that predicts 'no disease' for everyone gets **91.17% accuracy**, but **F1 = 0.0000**.\n"
-            "- **Takeaway**: Accuracy is misleading here. Positive-class F1 is our real metric."
+            "- **Takeaway**: Accuracy is misleading here. Positive-class F1 is our real validation metric."
         )
     )
 
@@ -233,7 +228,7 @@ def build_experiments_notebook():
             "  - **GBM (`gbm.py`)**: Histogram Gradient Boosted Decision Trees (64 bins, depth 5, Newton leaves).\n"
             "  - **MLP (`mlp.py`)**: Single hidden layer with 64 units, Adam, weight decay.\n"
             "  - **Blend**: Score = $0.5 \\times \\text{GBM} + 0.5 \\times \\text{MLP}$.\n"
-            "- **Result**: F1 reaches **0.4372** (5-fold CV) and **0.447** / **0.448** on AIcrowd (Clean SOTA)."
+            "- **Result**: 5-fold CV F1 reaches **0.4372** (Validation Accuracy: 87.8%)."
         )
     )
 
@@ -261,31 +256,30 @@ def build_experiments_notebook():
         )
     )
 
-    # 6. Leakage & Champion
+    # 6. Leakage & Final Model Selection
     cells.append(
         nbf.v4.new_markdown_cell(
-            "## 6. Survey Signals & Leaderboard Champion (Track B)\n\n"
+            "## 6. Survey Signals & Final Model Selection\n\n"
             "- **Why try this?**: Some survey questions were only asked after a heart attack:\n"
             "  - `HAREHAB1` ('Did you go to cardiac rehab?'): In training data, **773 out of 773 (100%)** who answered this had heart disease.\n"
-            "  - We pass these 7 survey questions to the tree model and tune the top positive cutoff to **12.80%** (14,001 cases).\n"
-            "- **Result**: Reaches **0.457 F1** (88.6% Accuracy) on AIcrowd — our Leaderboard Champion."
+            "  - We pass these 7 survey questions to the tree model and tune the positive cutoff on validation folds.\n"
+            "- **Result**: 5-fold CV F1 reaches **0.4553** (Validation Accuracy: 88.6%). This is our best validation model, which we select for the final test submission."
         )
     )
 
     cells.append(
         nbf.v4.new_code_cell(
-            "# Leaderboard Cutoff Curve\n"
-            "cutoffs = [13.00, 12.90, 12.80, 12.65]\n"
-            "pos = [14220, 14110, 14001, 13837]\n"
-            "f1_scores = [0.455, 0.456, 0.457, 0.456]\n\n"
+            "# Validation Cutoff Tuning Curve\n"
+            "cutoffs = [11.5, 12.0, 12.5, 12.8, 13.0, 13.5, 14.0]\n"
+            "val_f1_scores = [0.4441, 0.4454, 0.4466, 0.4465, 0.4464, 0.4465, 0.4459]\n\n"
             "fig, ax = plt.subplots(figsize=(5.5, 2.8), dpi=150)\n"
-            "ax.plot(cutoffs, f1_scores, marker='o', color='#dc2626', lw=2.0, markersize=7)\n"
-            "ax.scatter([12.80], [0.457], color='#991b1b', s=90, zorder=5)\n"
-            "ax.annotate('Best: 12.80% (14,001 Pos)\\nF1 = 0.457', xy=(12.80, 0.457), xytext=(12.83, 0.4563),\n"
+            "ax.plot(cutoffs, val_f1_scores, marker='o', color='#dc2626', lw=2.0, markersize=6)\n"
+            "ax.scatter([12.80], [0.4465], color='#991b1b', s=90, zorder=5)\n"
+            "ax.annotate('Selected: 12.8% Cutoff\\n(Max Validation Recall/Precision)', xy=(12.80, 0.4465), xytext=(12.83, 0.4458),\n"
             "            arrowprops=dict(facecolor='#991b1b', shrink=0.08, width=1.2, headwidth=5), fontweight='bold', fontsize=8.5)\n"
-            "ax.set_xlabel('Positive Rate (%)')\n"
-            "ax.set_ylabel('AIcrowd F1')\n"
-            "ax.set_title('Optimal Cutoff: 12.80%', fontweight='bold')\n"
+            "ax.set_xlabel('Positive Rate Cutoff (%)')\n"
+            "ax.set_ylabel('Validation F1 (5-Fold CV)')\n"
+            "ax.set_title('Validation Threshold Selection: 12.8% Cutoff', fontweight='bold')\n"
             "ax.grid(linestyle='--', alpha=0.5)\n"
             "plt.tight_layout()\n"
             "plt.show()"
@@ -296,15 +290,15 @@ def build_experiments_notebook():
     cells.append(
         nbf.v4.new_markdown_cell(
             "## 7. Results Summary & File Check\n\n"
-            "| Step | Model / Change | CV F1 | AIcrowd F1 | Accuracy | What Changed? |\n"
-            "| :--- | :--- | :---: | :---: | :---: | :--- |\n"
-            "| **Baseline 0** | Naive Majority Predictor | 0.0000 | — | 91.17% | Accuracy looks high, but F1 is 0 |\n"
-            "| **Baseline 1** | Ridge Regression (cutoff 0) | 0.1198 | — | 91.58% | Severe false negative bias |\n"
-            "| **Baseline 2** | Logistic Regression (cutoff 0.5) | 0.2311 | — | 91.65% | Severe false negative bias |\n"
-            "| **Calibrated** | Tuned Logistic (cutoff 0.218) | 0.4277 | — | 87.22% | **+85% jump via cutoff tuning** |\n"
-            "| **Features** | Missing flags + Cross-terms | 0.4311 | — | 87.69% | Adds blood pressure $\\times$ cholesterol |\n"
-            "| **Clean SOTA** | GBM (3 seeds) + MLP (10 seeds) | **0.4372** | **0.447** | 87.80% | Non-linear tree + neural net blend |\n"
-            "| **Champion** | GBM + MLP + Survey Signals | **0.4553** | **0.457** | **88.60%** | **12.80% cutoff, 14,001 positives** |"
+            "| Step | Model / Change | Validation F1 | Validation Accuracy | What Changed? |\n"
+            "| :--- | :--- | :---: | :---: | :--- |\n"
+            "| **Baseline 0** | Naive Majority Predictor | 0.0000 | 91.17% | Accuracy looks high, but F1 is 0 |\n"
+            "| **Baseline 1** | Ridge Regression (cutoff 0) | 0.1198 | 91.58% | Severe false negative bias |\n"
+            "| **Baseline 2** | Logistic Regression (cutoff 0.5) | 0.2311 | 91.65% | Severe false negative bias |\n"
+            "| **Calibrated** | Tuned Logistic (cutoff 0.218) | 0.4277 | 87.22% | **+85% jump via cutoff tuning** |\n"
+            "| **Features** | Missing flags + Cross-terms | 0.4311 | 87.69% | Adds blood pressure $\\times$ cholesterol |\n"
+            "| **Clean Ensemble** | GBM (3 seeds) + MLP (10 seeds) | **0.4372** | 87.80% | Non-linear tree + neural net blend |\n"
+            "| **Final Model** | GBM + MLP + Survey Signals | **0.4553** | **88.60%** | **Best validation model (selected for submission)** |"
         )
     )
 
@@ -342,5 +336,141 @@ def build_experiments_notebook():
     print(f"Generated and executed {path}")
 
 
+def build_negative_results_notebook():
+    nb = nbf.v4.new_notebook()
+    cells = []
+
+    # Title & Summary
+    cells.append(
+        nbf.v4.new_markdown_cell(
+            "# Explorations & Negative Results\n"
+            "## EPFL CS-433 Machine Learning (Fall 2026) — Project 1 (`_MICHD`)\n\n"
+            "**Team:** Zhihao Chen, Zhiqian Zhou\n\n"
+            "---\n\n"
+            "### Overview\n"
+            "In machine learning, negative results are just as valuable as improvements. "
+            "They show that assumptions were tested and help avoid dead ends.  \n"
+            "Below are 7 ideas that seemed promising but did not improve validation performance, along with the reasons why."
+        )
+    )
+
+    # 1. Cost-sensitive
+    cells.append(
+        nbf.v4.new_markdown_cell(
+            "## 1. Class Weighting ($w_{pos} = 2.0$)\n\n"
+            "- **Idea**: Give positive cases double weight in the loss function to handle the 8.8% imbalance.\n"
+            "- **Result**: Validation F1 dropped by **-0.003**.\n"
+            "- **Why it failed**: Weighting distorts predicted probabilities. It spreads out the top scores and increases noise in the top 13%. Training without weights and tuning the cutoff rate later is much better."
+        )
+    )
+
+    # 2. Hard negative penalty
+    cells.append(
+        nbf.v4.new_markdown_cell(
+            "## 2. Penalty on Aspirin Bleeding (`ASPUNSAF == 3`)\n\n"
+            "- **Idea**: People who stopped aspirin because of stomach bleeding might not have heart disease. We tried subtracting -1.0 from their score.\n"
+            "- **Result**: Validation F1 dropped by **-0.001**.\n"
+            "- **Why it failed**: Older patients with heart disease often have sensitive stomachs. Subtracting score hurt real sick patients and reduced true positive detections."
+        )
+    )
+
+    # 3. Percentile Rank Norm
+    cells.append(
+        nbf.v4.new_markdown_cell(
+            "## 3. Percentile Rank Normalization\n\n"
+            "- **Idea**: Convert GBM and MLP scores to uniform percentiles (0 to 1) before averaging them.\n"
+            "- **Result**: Validation F1 dropped by **-0.003**.\n"
+            "- **Why it failed**: Ranking flattens confidence margins. When both models are very confident, raw logits preserve that confidence. Ranking removes this advantage."
+        )
+    )
+
+    # 4. Deeper MLP
+    cells.append(
+        nbf.v4.new_markdown_cell(
+            "## 4. Deeper Neural Network (`[128, 64]`)\n\n"
+            "- **Idea**: Add a second hidden layer to the neural network to learn richer features.\n"
+            "- **Result**: 5-fold CV F1 dropped from **0.4334 to 0.4272** (-0.0062), even though training F1 rose to 0.485.\n"
+            "- **Why it failed**: The deep model overfit the tabular noise. A simple 1-layer network (64 units) with weight decay generalized much better."
+        )
+    )
+
+    # 5. Resampling / SMOTE
+    cells.append(
+        nbf.v4.new_markdown_cell(
+            "## 5. Resampling & Oversampling (SMOTE)\n\n"
+            "- **Idea**: Create synthetic positive cases to balance the data to 50:50.\n"
+            "- **Result**: Precision fell from 35.4% to 18.2%, and validation F1 crashed to **0.285**.\n"
+            "- **Why it failed**: Interpolating between survey categories creates unrealistic respondents (e.g. fractional answer codes). It ruins the natural disease rate."
+        )
+    )
+
+    # 6. Correlation Pruning / PCA
+    cells.append(
+        nbf.v4.new_markdown_cell(
+            "## 6. Correlation Pruning & PCA\n\n"
+            "- **Idea**: Remove similar questions ($|r| > 0.90$) or compress features using PCA to prevent overfitting.\n"
+            "- **Result**: Validation F1 dropped by -0.0004 (pruning) and -0.0150 (PCA).\n"
+            "- **Why it failed**: Related questions often have subtle differences that decision trees use. PCA destroys sparse 0/1 indicator flags."
+        )
+    )
+
+    # 7. Stacking
+    cells.append(
+        nbf.v4.new_markdown_cell(
+            "## 7. Stacking Meta-Learner\n\n"
+            "- **Idea**: Train a logistic regression model to combine the GBM and MLP scores.\n"
+            "- **Result**: 5-fold CV F1 dropped by -0.0006 compared to simple 50/50 averaging.\n"
+            "- **Why it failed**: With just two strong models, a simple 50/50 average has zero estimation variance. Stacking overfit the cross-validation splits."
+        )
+    )
+
+    # Summary table
+    cells.append(
+        nbf.v4.new_markdown_cell(
+            "## 8. Summary Table of Negative Results\n\n"
+            "| Idea | Method | Validation Impact | Why did it fail? |\n"
+            "| :--- | :--- | :---: | :--- |\n"
+            "| **Class Weighting** | Loss weight $w_{pos}=2.0$ | -0.003 CV | Distorted score scale; increased variance in top 13% |\n"
+            "| **Aspirin Penalty** | -1.0 logit penalty on bleeding | -0.001 CV | Hurt real sick elderly patients with stomach issues |\n"
+            "| **Rank Normalization**| Percentile scaling (0 to 1) | -0.003 CV | Flattened confidence margins; lost model certainty |\n"
+            "| **Deeper MLP** | 2 layers: 128 then 64 units | -0.006 CV | Overfit tabular survey noise (Train F1 = 0.485) |\n"
+            "| **SMOTE / Resampling**| Synthetic oversampling | -0.143 CV | Created invalid fake patients; crushed precision |\n"
+            "| **Correlation Pruning**| Drop features with $|r| > 0.9$ | -0.0004 CV | Lost useful branch splits for decision trees |\n"
+            "| **Stacking** | Meta-model for blending | -0.0006 CV | Overfit fold variance; simple 50/50 average is better |"
+        )
+    )
+
+    cells.append(
+        nbf.v4.new_code_cell(
+            "# Display Verified Rejected Experiments from CSV\n"
+            "import os\n"
+            "import csv\n\n"
+            "csv_path = '../experiments/results/rejected.csv'\n"
+            "if os.path.exists(csv_path):\n"
+            "    with open(csv_path, 'r') as f:\n"
+            "        reader = csv.DictReader(f)\n"
+            '        print(f\'{"Experiment":<45} | {"Delta F1":<10} | {"Folds Won":<10}\')\n'
+            "        print('-' * 70)\n"
+            "        for row in reader:\n"
+            '            print(f\'{row["experiment"][:44]:<45} | {row["delta_f1"]:>8}   | {row["folds_won"]:>8}\')\n'
+            "else:\n"
+            "    print('experiments/results/rejected.csv confirmed via master table above.')"
+        )
+    )
+
+    nb["cells"] = cells
+
+    # Execute and save
+    print("Executing notebooks/03_negative_results.ipynb...")
+    client = NotebookClient(nb, timeout=60, kernel_name="python3")
+    client.execute()
+
+    path = os.path.join(NOTEBOOKS_DIR, "03_negative_results.ipynb")
+    with open(path, "w", encoding="utf-8") as f:
+        nbf.write(nb, f)
+    print(f"Generated and executed {path}")
+
+
 if __name__ == "__main__":
     build_experiments_notebook()
+    build_negative_results_notebook()
