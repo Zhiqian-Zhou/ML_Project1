@@ -6,4 +6,4 @@ set -euo pipefail
 TESTS_DIR="${1:-../grading_tests}"
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$TESTS_DIR"
-pytest --github_link "$REPO_DIR" .
+${PYTHON:-python3} -m pytest --github_link "$REPO_DIR" .

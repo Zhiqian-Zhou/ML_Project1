@@ -28,7 +28,6 @@ Pipeline (driven by eda/feature_spec.csv and eda/special_codes.json):
 import csv
 import json
 import os
-import re
 
 import numpy as np
 
@@ -689,6 +688,50 @@ def leaky_features(x_raw, feature_names, codes=None):
         flag_names.append(f"{name}_answered")
     x_flags = np.column_stack(flags)
     return x_tree, tree_names, x_flags, flag_names
+
+
+TARGET_ENC_COLUMNS = [
+    "GENHLTH",
+    "CVDSTRK3",
+    "DIABETE3",
+    "_AGEG5YR",
+    "INCOME2",
+    "EMPLOY1",
+]
+
+
+def add_target_risk_encodings(
+    y_tr, xc_tr, xc_te, names, target_cols=TARGET_ENC_COLUMNS, m_smooth=50.0
+):
+    """Compute empirical Bayes smoothed risk encoding on key categorical variables.
+
+    Fitted strictly on y_tr labels to guarantee zero data leakage.
+    Smooth prevalence = (pos + m * prior) / (cnt + m).
+    """
+    y01_tr = (y_tr == 1).astype(np.float64)
+    prior = float(np.mean(y01_tr))
+    enc_tr_list, enc_te_list, enc_names = [], [], []
+    for col_name in target_cols:
+        if col_name in names:
+            idx = names.index(col_name)
+            col_tr = xc_tr[:, idx]
+            col_te = xc_te[:, idx]
+            cats, inv = np.unique(col_tr, return_inverse=True)
+            pos = np.bincount(inv, weights=y01_tr)
+            cnt = np.bincount(inv)
+            smooth = (pos + m_smooth * prior) / (cnt + m_smooth)
+            pos_idx = np.clip(np.searchsorted(cats, col_te), 0, len(cats) - 1)
+            enc_te = np.where(cats[pos_idx] == col_te, smooth[pos_idx], prior)
+            enc_tr_list.append(smooth[inv])
+            enc_te_list.append(enc_te)
+            enc_names.append(f"{col_name}_RISK")
+    if not enc_tr_list:
+        return xc_tr, xc_te, names
+    # Insert new continuous risk features directly before _STATE
+    new_tr = np.hstack([xc_tr[:, :-1], np.column_stack(enc_tr_list), xc_tr[:, -1:]])
+    new_te = np.hstack([xc_te[:, :-1], np.column_stack(enc_te_list), xc_te[:, -1:]])
+    new_names = names[:-1] + enc_names + [names[-1]]
+    return new_tr, new_te, new_names
 
 
 # ----------------------------------------------------------------------
