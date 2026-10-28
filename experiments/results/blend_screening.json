@@ -1,0 +1,66 @@
+[
+  {
+    "split": "training_coverage_20261027_scores",
+    "gbm_weight": 0.5,
+    "top_rate": 0.128,
+    "f1": 0.4593682919349893,
+    "precision": 0.39010416666666664,
+    "recall": 0.5585384041759881
+  },
+  {
+    "split": "training_coverage_20261027_scores",
+    "gbm_weight": 0.55,
+    "top_rate": 0.128,
+    "f1": 0.4575283655320454,
+    "precision": 0.3885416666666667,
+    "recall": 0.5563012677106637
+  },
+  {
+    "split": "training_coverage_20261027_scores",
+    "gbm_weight": 0.5,
+    "top_rate": 0.129,
+    "f1": 0.4590964590964591,
+    "precision": 0.3886304909560723,
+    "recall": 0.5607755406413124
+  },
+  {
+    "split": "training_coverage_20261027_scores",
+    "gbm_weight": 0.55,
+    "top_rate": 0.129,
+    "f1": 0.45726495726495725,
+    "precision": 0.38708010335917314,
+    "recall": 0.5585384041759881
+  },
+  {
+    "split": "training_coverage_20261028_scores",
+    "gbm_weight": 0.5,
+    "top_rate": 0.128,
+    "f1": 0.44158233670653174,
+    "precision": 0.375,
+    "recall": 0.5369127516778524
+  },
+  {
+    "split": "training_coverage_20261028_scores",
+    "gbm_weight": 0.55,
+    "top_rate": 0.128,
+    "f1": 0.44342226310947563,
+    "precision": 0.3765625,
+    "recall": 0.5391498881431768
+  },
+  {
+    "split": "training_coverage_20261028_scores",
+    "gbm_weight": 0.5,
+    "top_rate": 0.129,
+    "f1": 0.4413919413919414,
+    "precision": 0.3736434108527132,
+    "recall": 0.5391498881431768
+  },
+  {
+    "split": "training_coverage_20261028_scores",
+    "gbm_weight": 0.55,
+    "top_rate": 0.129,
+    "f1": 0.442002442002442,
+    "precision": 0.37416020671834627,
+    "recall": 0.5398956002982849
+  }
+]

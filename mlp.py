@@ -16,6 +16,7 @@ Link with the course (lecture on neural networks):
 import numpy as np
 
 DEFAULT_PARAMS = {
+    "split_per_seed": False,  # opt-in: avoid excluding the same rows from every net
     "hidden": [64],  # sizes of the hidden layers (single robust layer)
     "lr": 1e-3,  # Adam step size
     "batch_size": 512,
@@ -154,6 +155,11 @@ def train_one(y01, x, x_val, y_val01, p, seed):
             adam_step(layers, grads, m, v, t, p["lr"])
         # early stopping: keep the best epoch, stop after `patience` worse ones
         val_loss = bce_from_logits(y_val01, predict_logits(layers, x_val))
+        if p.get("verbose", False):
+            print(
+                f"MLP seed {seed}, epoch {epoch + 1}: validation BCE {val_loss:.6f}",
+                flush=True,
+            )
         if val_loss < best_loss:
             best_loss, best_epoch = val_loss, epoch
             best_layers = [[W.copy(), b.copy()] for W, b in layers]
@@ -163,7 +169,7 @@ def train_one(y01, x, x_val, y_val01, p, seed):
 
 
 def train(y, tx, params=None):
-    """Fit n_seeds networks on the same inner train / validation split.
+    """Fit networks with a shared split, or one split per seed when requested.
 
     Args:
         y: labels in {-1, 1}, shape (N,).
@@ -180,10 +186,14 @@ def train(y, tx, params=None):
     y01 = (y == 1).astype(np.float32)
     x_tr, x_va = tx[tr], tx[va]
     y_tr01, y_va01 = y01[tr], y01[va]
-    nets = [
-        train_one(y_tr01, x_tr, x_va, y_va01, p, p["seed"] + s)
-        for s in range(p["n_seeds"])
-    ]
+    nets = []
+    for s in range(p["n_seeds"]):
+        if p["split_per_seed"]:
+            split_rng = np.random.default_rng(p["seed"] + s)
+            tr, va = stratified_split(y, p["val_frac"], split_rng)
+            x_tr, x_va = tx[tr], tx[va]
+            y_tr01, y_va01 = y01[tr], y01[va]
+        nets.append(train_one(y_tr01, x_tr, x_va, y_va01, p, p["seed"] + s))
     return {"nets": nets}
 
 

@@ -24,6 +24,7 @@ of g and h per (feature, bin) are computed with np.bincount.
 import numpy as np
 
 DEFAULT_PARAMS = {
+    "refit_full": False,  # opt-in: select rounds internally, refit on all supplied rows
     "n_trees": 1500,  # maximum number of boosting rounds
     "learning_rate": 0.05,  # shrinkage of every tree
     "max_depth": 5,  # depth of each tree (at most 2**max_depth leaves)
@@ -345,7 +346,8 @@ def boost(xb, y01, xb_val, y_val, p):
 
     Args:
         xb, y01: binned training features and labels in {0, 1}.
-        xb_val, y_val: validation data for early stopping.
+        xb_val, y_val: validation data for early stopping; both None fits
+            exactly n_trees rounds without validation-based selection.
         p: parameters (see DEFAULT_PARAMS).
 
     Returns:
@@ -356,11 +358,13 @@ def boost(xb, y01, xb_val, y_val, p):
     n, d = xb.shape
     w_pos = float(p.get("w_pos", 1.0))
     w_train = np.where(y01 == 1, w_pos, 1.0)
-    w_val = np.where(y_val == 1, w_pos, 1.0)
+    early_stopping = xb_val is not None
+    w_val = np.where(y_val == 1, w_pos, 1.0) if early_stopping else None
 
     prior = np.clip(np.sum(w_train * y01) / np.sum(w_train), 1e-6, 1 - 1e-6)
     f0 = float(np.log(prior / (1 - prior)))
-    f, f_val = np.full(n, f0), np.full(len(xb_val), f0)
+    f = np.full(n, f0)
+    f_val = np.full(len(xb_val), f0) if early_stopping else None
     trees, val_curve = [], []
     for t in range(p["n_trees"]):
         # gradient and hessian of the logistic loss at the current logits
@@ -379,11 +383,13 @@ def boost(xb, y01, xb_val, y_val, p):
         trees.append(tree)
         f += predict_tree(tree, xb, p["n_bins"])
         # early stopping on the validation loss
+        if not early_stopping:
+            continue
         f_val += predict_tree(tree, xb_val, p["n_bins"])
         val_curve.append(logistic_loss(y_val, f_val, w_val))
         if t - int(np.argmin(val_curve)) >= p["patience"]:
             break
-    return f0, trees[: int(np.argmin(val_curve)) + 1]
+    return f0, trees[: int(np.argmin(val_curve)) + 1] if early_stopping else trees
 
 
 def train(y, tx, params=None):
@@ -397,7 +403,10 @@ def train(y, tx, params=None):
     Args:
         y: labels in {-1, 1}, shape (N,).
         tx: tree_features output (N, D), NaN allowed, _STATE last.
-        params: dict, missing keys come from DEFAULT_PARAMS.
+        params: dict, missing keys come from DEFAULT_PARAMS. With refit_full=True,
+            select rounds on an inner split (including train-only bin edges),
+            then fit exactly that many trees on all supplied training rows.
+            False preserves the existing production behavior.
 
     Returns:
         model: dict (target encoding, bin edges, f0, trees).
@@ -406,11 +415,27 @@ def train(y, tx, params=None):
     y01 = (y == 1).astype(np.float64)
     tr, va = stratified_split(y01, p["valid_frac"], p["seed"])
     encoding = fit_target_encoding(tx[tr, -1], y01[tr], p["target_enc_last"])
+    raw_tx = tx
     tx = apply_target_encoding(tx, encoding)
-    edges = fit_bins(tx, p["n_bins"])
+    edges = fit_bins(tx[tr] if p["refit_full"] else tx, p["n_bins"])
     xb = apply_bins(tx, edges, p["n_bins"])
     f0, trees = boost(xb[tr], y01[tr], xb[va], y01[va], p)
+    selected_rounds = len(trees)
+    if p["refit_full"]:
+        # The external validation/test rows never enter this function.
+        # Refit encodings and bins on all supplied training rows only after
+        # selecting the number of trees on the inner split.
+        encoding = fit_target_encoding(raw_tx[:, -1], y01, p["target_enc_last"])
+        tx = apply_target_encoding(raw_tx, encoding)
+        edges = fit_bins(tx, p["n_bins"])
+        xb = apply_bins(tx, edges, p["n_bins"])
+        f0, trees = boost(xb, y01, None, None, dict(p, n_trees=selected_rounds))
     model = {"encoding": encoding, "edges": edges, "n_bins": p["n_bins"]}
+    model.update(
+        selected_rounds=selected_rounds,
+        training_rows=len(y) if p["refit_full"] else len(tr),
+        refit_full=p["refit_full"],
+    )
     model.update(f0=f0, trees=trees)
     return model
 

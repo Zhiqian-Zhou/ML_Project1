@@ -26,7 +26,7 @@ from preprocessing import load_data_cached, load_feature_names
 from run import HERE, LEAKY_POSITIVE_RATE, POSITIVE_RATE, ensemble_scores, model_inputs
 
 
-def parse_args():
+def parse_args(argv=None):
     """Parse the command line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data_path", default=os.path.join(HERE, "data", "dataset"))
@@ -35,9 +35,19 @@ def parse_args():
     parser.add_argument("--n_rows", type=int, default=None)
     parser.add_argument("--k_fold", type=int, default=5)
     parser.add_argument("--top_rate", type=float, default=None)
-    args = parser.parse_args()
+    parser.add_argument("--gbm_weight", type=float, default=0.5)
+    parser.add_argument(
+        "--scores_dir", default=None, help="Save labeled components for offline tuning"
+    )
+    parser.add_argument("--gbm_refit_full", action="store_true")
+    parser.add_argument("--mlp_split_per_seed", action="store_true")
+    args = parser.parse_args(argv)
     if args.top_rate is None:
         args.top_rate = LEAKY_POSITIVE_RATE if args.with_leakage else POSITIVE_RATE
+    if not 0 <= args.gbm_weight <= 1 or not 0 < args.top_rate < 1:
+        parser.error("Invalid blend weight or positive rate")
+    if args.k_fold == 1 or args.k_fold < 0 or (args.k_fold == 0 and not args.holdout):
+        parser.error("Use k_fold >= 2, or --holdout --k_fold 0")
     return args
 
 
@@ -61,19 +71,62 @@ def f1_top_rate(y, scores, top_rate=POSITIVE_RATE):
     return precision_recall_f1(y, y_pred)
 
 
-def fold_scores(y, xc, names, leaky, tr, te, k):
+def fold_scores(
+    y,
+    xc,
+    names,
+    leaky,
+    tr,
+    te,
+    k,
+    gbm_params=None,
+    mlp_params=None,
+    gbm_weight=0.5,
+    scores_dir=None,
+    score_tag=None,
+):
     """Train on the rows tr (run.ensemble_scores), return the scores of the rows te."""
     leaky_tr = leaky_te = None
     if leaky is not None:
         leaky_tr = tuple(block[tr] for block in leaky)
         leaky_te = tuple(block[te] for block in leaky)
-    return ensemble_scores(y[tr], xc[tr], xc[te], names, leaky_tr, leaky_te, seed=k)
+    components = {}
+    scores = ensemble_scores(
+        y[tr],
+        xc[tr],
+        xc[te],
+        names,
+        leaky_tr,
+        leaky_te,
+        seed=k,
+        gbm_params=gbm_params,
+        mlp_params=mlp_params,
+        gbm_weight=gbm_weight,
+        components=components,
+    )
+
+    if scores_dir is not None:
+        os.makedirs(scores_dir, exist_ok=True)
+        np.savez_compressed(
+            os.path.join(scores_dir, (score_tag or f"fold_{k}") + ".npz"),
+            row_indices=te,
+            y=y[te],
+            **components,
+            gbm_weight=gbm_weight,
+        )
+    return scores
 
 
-def main():
+def main(argv=None):
     """Run the k-fold cross-validation and print the F1 of every fold."""
-    args = parse_args()
+    args = parse_args(argv)
     t0 = time.time()
+    model_options = dict(
+        gbm_params={"refit_full": args.gbm_refit_full},
+        mlp_params={"split_per_seed": args.mlp_split_per_seed, "verbose": False},
+        gbm_weight=args.gbm_weight,
+        scores_dir=args.scores_dir,
+    )
     x, _, y, _, _ = load_data_cached(args.data_path)
     names = load_feature_names(args.data_path)
     xc, xc_names, leaky = model_inputs(x[: args.n_rows], names, args.with_leakage)
@@ -87,7 +140,7 @@ def main():
         f1s = []
         for k in range(args.k_fold):
             tr, te = (rows[i] for i in fold_split(k_indices, k))
-            scores = fold_scores(y, xc, xc_names, leaky, tr, te, k)
+            scores = fold_scores(y, xc, xc_names, leaky, tr, te, k, **model_options)
             p, r, f1 = f1_top_rate(y[te], scores, args.top_rate)
             f1s.append(f1)
             print(
@@ -99,7 +152,17 @@ def main():
             flush=True,
         )
     if args.holdout:
-        scores = fold_scores(y, xc, xc_names, leaky, rows, hold, args.k_fold)
+        scores = fold_scores(
+            y,
+            xc,
+            xc_names,
+            leaky,
+            rows,
+            hold,
+            args.k_fold,
+            score_tag="holdout",
+            **model_options,
+        )
         p, r, f1 = f1_top_rate(y[hold], scores, args.top_rate)
         print(
             f"held-out F1 {f1:.4f} (P {p:.3f}, R {r:.3f}) on {len(hold)} rows",

@@ -1,0 +1,158 @@
+{
+  "sample_seed": 99,
+  "arguments": {
+    "data_path": "data/dataset",
+    "output": "experiments/results/training_coverage.json",
+    "n_rows": 60000,
+    "n_trees": 300,
+    "mlp_seeds": 3,
+    "split_seeds": [
+      20261027,
+      20261028
+    ],
+    "with_leakage": true
+  },
+  "positive_rate": 0.128,
+  "runs": [
+    {
+      "split_seed": 20261027,
+      "train_rows": 45000,
+      "valid_rows": 15000,
+      "models": {
+        "gbm_baseline": {
+          "seconds": 28.00686812400818,
+          "trees": 152,
+          "training_rows": 36000
+        },
+        "gbm_refit": {
+          "seconds": 55.756174087524414,
+          "trees": 181,
+          "training_rows": 45000
+        },
+        "mlp_baseline": {
+          "seconds": 3.119598865509033
+        },
+        "mlp_varied": {
+          "seconds": 3.00314998626709
+        }
+      },
+      "metrics": {
+        "baseline": {
+          "f1": 0.4569150567310641,
+          "precision": 0.3880208333333333,
+          "recall": 0.5555555555555556,
+          "accuracy": 0.8819333333333333,
+          "positives": 1920,
+          "delta_vs_baseline": 0.0
+        },
+        "gbm_refit_only": {
+          "f1": 0.4575283655320454,
+          "precision": 0.3885416666666667,
+          "recall": 0.5563012677106637,
+          "accuracy": 0.8820666666666667,
+          "positives": 1920,
+          "delta_vs_baseline": 0.0006133088009813159,
+          "paired_bootstrap_95": [
+            -0.005073624841282568,
+            0.006986431270407024
+          ]
+        },
+        "mlp_varied_only": {
+          "f1": 0.4593682919349893,
+          "precision": 0.39010416666666664,
+          "recall": 0.5585384041759881,
+          "accuracy": 0.8824666666666666,
+          "positives": 1920,
+          "delta_vs_baseline": 0.002453235203925208,
+          "paired_bootstrap_95": [
+            -0.0025863144352719176,
+            0.00774996723696647
+          ]
+        },
+        "both": {
+          "f1": 0.4563017479300828,
+          "precision": 0.3875,
+          "recall": 0.5548098434004475,
+          "accuracy": 0.8818,
+          "positives": 1920,
+          "delta_vs_baseline": -0.0006133088009812604,
+          "paired_bootstrap_95": [
+            -0.007707637555839182,
+            0.006647701445394527
+          ]
+        }
+      },
+      "seconds": 91.2406051158905
+    },
+    {
+      "split_seed": 20261028,
+      "train_rows": 45000,
+      "valid_rows": 15000,
+      "models": {
+        "gbm_baseline": {
+          "seconds": 29.447264909744263,
+          "trees": 156,
+          "training_rows": 36000
+        },
+        "gbm_refit": {
+          "seconds": 64.67538619041443,
+          "trees": 205,
+          "training_rows": 45000
+        },
+        "mlp_baseline": {
+          "seconds": 2.7574734687805176
+        },
+        "mlp_varied": {
+          "seconds": 2.6328394412994385
+        }
+      },
+      "metrics": {
+        "baseline": {
+          "f1": 0.4385157927016253,
+          "precision": 0.3723958333333333,
+          "recall": 0.5331841909023117,
+          "accuracy": 0.8779333333333333,
+          "positives": 1920,
+          "delta_vs_baseline": 0.0
+        },
+        "gbm_refit_only": {
+          "f1": 0.4415823367065317,
+          "precision": 0.375,
+          "recall": 0.5369127516778524,
+          "accuracy": 0.8786,
+          "positives": 1920,
+          "delta_vs_baseline": 0.003066544004906413,
+          "paired_bootstrap_95": [
+            -0.003363956265370935,
+            0.009690256770273922
+          ]
+        },
+        "mlp_varied_only": {
+          "f1": 0.4415823367065317,
+          "precision": 0.375,
+          "recall": 0.5369127516778524,
+          "accuracy": 0.8786,
+          "positives": 1920,
+          "delta_vs_baseline": 0.003066544004906413,
+          "paired_bootstrap_95": [
+            -0.0027313920107919693,
+            0.009076196922563628
+          ]
+        },
+        "both": {
+          "f1": 0.43912910150260653,
+          "precision": 0.3729166666666667,
+          "recall": 0.5339299030574198,
+          "accuracy": 0.8780666666666667,
+          "positives": 1920,
+          "delta_vs_baseline": 0.0006133088009812604,
+          "paired_bootstrap_95": [
+            -0.006777065958011794,
+            0.007957235079801481
+          ]
+        }
+      },
+      "seconds": 100.80635523796082
+    }
+  ]
+}
