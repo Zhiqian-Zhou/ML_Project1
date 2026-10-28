@@ -5,8 +5,10 @@ data/*
 *.npy
 *.npz
 
-# Generated submissions
+# Generated submissions (track official deliverables, ignore temporary runs)
 submissions/*.csv
+!submissions/submission_clean_sota.csv
+!submissions/submission_with_leakage.csv
 
 # Python
 __pycache__/
