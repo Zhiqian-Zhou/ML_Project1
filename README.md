@@ -7,8 +7,8 @@
 [![Code Style](https://img.shields.io/badge/Code%20Style-Black-000000.svg)](https://github.com/psf/black)
 
 **Team Members:** Zhihao Chen, Zhiqian Zhou, Guanyu Chen  
-**Best Leaderboard Submission:** **F1 = 0.457**, Accuracy = 88.6% (14,001 positive predictions)  
-**Clean SOTA Submission:** **F1 = 0.448**, Accuracy = 87.8% (14,876 positive predictions, Zero-Leakage Screening)
+**Best Leaderboard Submission:** **F1 = 0.457**, Accuracy = 88.3% (14,001 positive predictions)  
+**Clean SOTA Submission:** **F1 = 0.447**, Accuracy = 87.7% (14,876 positive predictions, Zero-Leakage Screening)
 
 ---
 
@@ -90,7 +90,7 @@ The script `run.py` trains the models and generates the exact submission files:
 # 1. Reproduce Track B Leaderboard SOTA (F1 = 0.457, exactly 14,001 positives)
 python run.py --with_leakage --output submissions/submission_with_leakage.csv
 
-# 2. Reproduce Track A Clean SOTA (F1 = 0.448, exactly 14,876 positives, zero leakage)
+# 2. Reproduce Track A Clean SOTA (F1 = 0.447, exactly 14,876 positives, zero leakage)
 python run.py --output submissions/submission_clean_sota.csv
 ```
 
@@ -144,7 +144,7 @@ ML_Project1/
 │
 ├── submissions/                   # Official prediction submissions
 │   ├── submission_with_leakage.csv# Track B Leaderboard Model (0.457 F1, 14,001 positives)
-│   └── submission_clean_sota.csv  # Track A Clean SOTA Model (0.448 F1, 14,876 positives)
+│   └── submission_clean_sota.csv  # Track A Clean SOTA Model (0.447 F1, 14,876 positives)
 │
 ├── tests/                         # Unit tests (7/7 passed)
 │   ├── test_preprocessing.py      # Zero-leakage pipeline assertions

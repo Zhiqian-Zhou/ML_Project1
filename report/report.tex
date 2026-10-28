@@ -33,9 +33,9 @@
   immediate +85\% relative leap ($F_1 \to 0.428$). We develop a pure-NumPy ensemble
   combining Histogram Gradient Boosted Trees (GBM) with second-order leaf updates
   and an Adam-trained Multi-Seed Multi-Layer Perceptron (MLP). The clean ensemble
-  achieves 5-fold CV $F_1$ of 0.437, 0.434 on holdout, and 0.448 on AIcrowd (87.8\%
+  achieves 5-fold CV $F_1$ of 0.437, 0.434 on holdout, and 0.447 on AIcrowd (87.7\%
   accuracy) with zero target leakage. Seven post-cardiac event questions inflate test
-  $F_1$ to 0.457 (88.6\% accuracy), which we isolate to preserve clinical screening
+  $F_1$ to 0.457 (88.3\% accuracy), which we isolate to preserve clinical screening
   integrity while documenting benchmark leakage.
 \end{abstract}
 
@@ -152,15 +152,16 @@ Out-of-fold logit correlation between GBM and MLP is 0.976.
 \end{table}
 
 On held-out rows, the clean ensemble achieves precision 0.354, recall 0.561,
-and $F_1 = 0.4340$. On AIcrowd, it scores $F_1 = 0.448$ and 87.8\% accuracy.
+and $F_1 = 0.4340$. On AIcrowd, it scores $F_1 = 0.447$ and 87.7\% accuracy.
 The gap with CV is within two bootstrap standard deviations ($\sigma \approx 0.005$).
 
-\textbf{Rejected alternatives \& coverage analysis.} The following failed our
-acceptance rule: class weighting ($-0.003$), focal loss ($-0.021$), PCA
-($0.403$--$0.413$), feature selection, crossed target encodings, full-row GBM
-refitting ($-0.0010$), seed-diversified splits (\texttt{split\_per\_seed}, paired
-bootstrap intervals crossed zero), stacking, Naive Bayes ($-0.016$), and group
-thresholds ($-0.001$).
+\textbf{Rejected alternatives.} The following failed our acceptance rule:
+SMOTE resampling crashed $F_1$ to 0.285 (precision fell to 18.2\%); deeper
+2-layer MLPs [128, 64] dropped CV $F_1$ to 0.4272 (overfitting train $F_1$ to
+0.485); class weighting ($w_{\text{pos}}=2.0$) and rank normalization dropped
+$F_1$ by $-0.003$; PCA dropped $F_1$ by $-0.015$; full-row GBM refitting dropped
+$-0.0010$; seed-diversified splits (\texttt{split\_per\_seed}) saw paired
+bootstrap intervals cross zero; and stacking meta-models ($-0.0006$) overfit.
 
 \textbf{Feature importance.} Permutation AUC drops identify primary predictors:
 age (0.035), general health (0.021), sex (0.018), high cholesterol (0.009),
@@ -177,7 +178,7 @@ leakage \cite{kaufman2012leakage}: 100\% of respondents who answered
 
 Table~\ref{tab:leak} demonstrates that including these questions lifts every
 model by 0.009 to 0.012 $F_1$ across all 5 folds. The leaky ensemble attains
-0.457 on AIcrowd (88.6\% accuracy).
+$F_1 = 0.457$ and 88.3\% accuracy on AIcrowd.
 
 However, screening models target undiagnosed individuals who cannot have
 received cardiac rehabilitation; hence, these answers do not exist at inference
@@ -191,19 +192,19 @@ time. We therefore designate the zero-leakage model as our official submission
   \caption{Clean screening model vs.\ leaky variant. Nested CV ablation across
     model families (Clean $\to$ Leaky).}
   \label{tab:leak}
-  \setlength{\tabcolsep}{4pt}
-  \begin{tabular}{lccc}
+  \setlength{\tabcolsep}{6pt}
+  \begin{tabular}{lcc}
     \toprule
-                     & CV F1 & Held-out & AIcrowd F1/acc. \\
+    Model            & CV F1                & Held-out \\
     \midrule
-    Clean (top 14\%) & $0.4368 \pm 0.0026$ & 0.4340   & 0.448 / 0.878     \\
-    Leaky (top 13\%) & $0.4464 \pm 0.0032$ & 0.4445   & 0.457 / 0.886     \\
+    Clean (top 14\%) & $0.4368 \pm 0.0026$  & 0.4340   \\
+    Leaky (top 13\%) & $0.4464 \pm 0.0032$  & 0.4445   \\
     \midrule
-    Ridge            & \multicolumn{3}{l}{$0.4210 \rightarrow 0.4297$ (+0.009)} \\
-    Reg.\ logistic   & \multicolumn{3}{l}{$0.4294 \rightarrow 0.4414$ (+0.012)} \\
-    GBM              & \multicolumn{3}{l}{$0.4330 \rightarrow 0.4444$ (+0.011)} \\
-    MLP              & \multicolumn{3}{l}{$0.4326 \rightarrow 0.4435$ (+0.011)} \\
-    GBM + MLP        & \multicolumn{3}{l}{$0.4366 \rightarrow 0.4452$ (+0.009)} \\
+    Ridge            & \multicolumn{2}{l}{$0.4210 \rightarrow 0.4297$ (+0.009)} \\
+    Reg.\ logistic   & \multicolumn{2}{l}{$0.4294 \rightarrow 0.4414$ (+0.012)} \\
+    GBM              & \multicolumn{2}{l}{$0.4330 \rightarrow 0.4444$ (+0.011)} \\
+    MLP              & \multicolumn{2}{l}{$0.4326 \rightarrow 0.4435$ (+0.011)} \\
+    GBM + MLP        & \multicolumn{2}{l}{$0.4366 \rightarrow 0.4452$ (+0.009)} \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -218,8 +219,8 @@ clinical biomarkers (troponin, ECG, lipid panels) unavailable in phone surveys.
 \section{Summary}
 Our pure-NumPy ensemble of Histogram Gradient Boosted Trees and an Adam-trained MLP,
 backed by codebook cleaning and threshold calibration, reaches $F_1 = 0.434$ on holdout
-and $0.448$ on AIcrowd (87.8\% accuracy). Post-cardiac event questions inflate $F_1$
-to $0.457$ (88.6\% accuracy), which we isolate to preserve screening validity.
+and $0.447$ on AIcrowd (87.7\% accuracy). Post-cardiac event questions inflate $F_1$
+to $0.457$ (88.3\% accuracy), which we isolate to preserve screening validity.
 
 \bibliographystyle{IEEEtran}
 \bibliography{literature}
