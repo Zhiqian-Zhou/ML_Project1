@@ -63,6 +63,10 @@ def create_csv_submission(ids, y_pred, name):
     # Check that y_pred only contains -1 and 1
     if not all(i in [-1, 1] for i in y_pred):
         raise ValueError("y_pred can only contain values -1, 1")
+    if len(ids) != len(y_pred):
+        raise ValueError(
+            f"Length mismatch: ids has {len(ids)} rows, y_pred has {len(y_pred)} rows"
+        )
 
     with open(name, "w", newline="") as csvfile:
         fieldnames = ["Id", "Prediction"]

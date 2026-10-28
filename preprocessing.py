@@ -276,8 +276,8 @@ def load_feature_names(data_path):
 def load_data_cached(data_path, sub_sample=False, cache_dir=None):
     """Load the data with helpers.load_csv_data and cache it as a .npz file.
 
-    Checks if existing pre-parsed numpy cache exists (in cache_raw or cache)
-    for instant sub-second loading.
+    Checks if existing pre-parsed numpy cache exists for instant sub-second loading.
+    Scopes the cache file to the data_path folder to avoid cross-dataset pollution.
 
     Args:
         data_path: str, folder containing the 3 csv files.
@@ -288,27 +288,13 @@ def load_data_cached(data_path, sub_sample=False, cache_dir=None):
         tuple: (x_train, x_test, y_train, train_ids, test_ids).
     """
     base_dir = os.path.dirname(os.path.abspath(data_path))
-    raw_dir = os.path.join(base_dir, "cache_raw")
-
-    if (
-        os.path.exists(os.path.join(raw_dir, "x_train_raw.npy"))
-        and os.path.exists(os.path.join(raw_dir, "x_test_raw.npy"))
-        and os.path.exists(os.path.join(raw_dir, "y_train_raw.npy"))
-        and os.path.exists(os.path.join(raw_dir, "train_ids_raw.npy"))
-        and os.path.exists(os.path.join(raw_dir, "test_ids_raw.npy"))
-    ):
-        xtr = np.load(os.path.join(raw_dir, "x_train_raw.npy"))
-        xte = np.load(os.path.join(raw_dir, "x_test_raw.npy"))
-        ytr = np.load(os.path.join(raw_dir, "y_train_raw.npy"))
-        tr_ids = np.load(os.path.join(raw_dir, "train_ids_raw.npy"))
-        te_ids = np.load(os.path.join(raw_dir, "test_ids_raw.npy"))
-        if sub_sample:
-            return xtr[::50], xte[::50], ytr[::50], tr_ids[::50], te_ids[::50]
-        return xtr, xte, ytr, tr_ids, te_ids
-
     if cache_dir is None:
         cache_dir = os.path.join(base_dir, "cache")
-    cache = os.path.join(cache_dir, "raw_sub.npz" if sub_sample else "raw.npz")
+    folder_tag = os.path.basename(os.path.normpath(data_path))
+    cache_name = "raw_sub.npz" if sub_sample else "raw.npz"
+    if folder_tag and folder_tag != "dataset":
+        cache_name = f"{folder_tag}_{cache_name}"
+    cache = os.path.join(cache_dir, cache_name)
     if not os.path.exists(cache):
         arrays = load_csv_data(data_path, sub_sample)
         os.makedirs(cache_dir, exist_ok=True)
@@ -746,8 +732,12 @@ def select_columns(xc_train, names, rows, max_nan_ratio):
     col_max = np.where(nan, -np.inf, xc_train).max(axis=0)
     kept = []
     for j, name in enumerate(names):
-        # Allow high-AUC features, structured skip features, composite features, or spec non-drop features
-        if name in HIGH_AUC_CDC_COLUMNS or name.endswith("_CLEAN"):
+        # Allow high-AUC features, structured skip features, composite features, target risk features, or spec non-drop features
+        if (
+            name in HIGH_AUC_CDC_COLUMNS
+            or name.endswith("_CLEAN")
+            or name.endswith("_RISK")
+        ):
             pass
         elif name in (
             "VASCULAR_BURDEN",
