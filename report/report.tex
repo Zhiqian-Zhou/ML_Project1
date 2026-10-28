@@ -12,9 +12,6 @@
 \usepackage{booktabs}
 \usepackage{microtype}
 
-\setlength{\textfloatsep}{8pt plus 1pt minus 2pt}
-\setlength{\floatsep}{10pt plus 2pt minus 2pt}
-\setlength{\intextsep}{8pt plus 1pt minus 2pt}
 
 \begin{document}
 \title{Predicting Coronary Heart Disease from BRFSS with Pure-NumPy Ensembles}
@@ -49,13 +46,13 @@ Coronary heart disease is a leading global cause of death, motivating low-cost s
 
 \textbf{Gradient boosted trees.} Decision trees naturally capture non-linear interactions without requiring monotonic scaling. We implement a histogram-based gradient boosted tree (GBM) \cite{friedman2001greedy} in NumPy, minimizing logistic loss with L2-regularized Newton leaf steps ($\lambda=5$) \cite{chen2016xgboost}. Features are grouped into 64 quantile bins with missing entries routed automatically. We use depth-5 trees, learning rate 0.05, subsampling (0.7 rows, 0.8 columns), target-encoded state codes \cite{miccibarreca2001}, and early stopping.
 
-\textbf{Neural network.} An MLP with 64 ReLU hidden units is implemented in NumPy to provide smooth continuous decision boundaries. Trained with Adam \cite{kingma2015adam} (learning rate $10^{-3}$, batch size 512, weight decay $10^{-3}$), logits are averaged across 10 random seeds to eliminate initialization variance.
+\textbf{Neural network.} An MLP with 64 ReLU hidden units is implemented in NumPy to provide smooth continuous decision boundaries. Trained with Adam \cite{kingma2015adam} (learning rate $10^{-3}$, batch size 512, weight decay $10^{-3}$), logits are averaged across 10 random seeds to reduce variance.
 
 \textbf{Ensemble and decision rule.} We blend the tree ensemble and neural network by averaging raw output scores ($0.5\,s_{\text{GBM}}+0.5\,s_{\text{MLP}}$). Rather than a fixed 0.5 probability cutoff, we classify the top 14\% highest-risk individuals as positive. This percentile rule is invariant to calibration drift across folds; as shown in Fig.~\ref{fig:share}, F1 remains stable across positive rates of 12--16\%.
 
 \begin{figure}[tbp]
   \centering
-  \includegraphics[width=0.40\columnwidth]{figures/f1_vs_share.pdf}
+  \includegraphics[width=0.60\columnwidth]{figures/f1_vs_share.pdf}
   \vspace{-2mm}
   \caption{CV F1 (mean $\pm$ std over 5 folds) vs.\ predicted positive share. Dotted: prevalence (8.83\%). Dashed: chosen cutoff (14\%).}
   \label{fig:share}
@@ -70,7 +67,7 @@ Table~\ref{tab:results} benchmarks all models on standardized development folds:
   \footnotesize
   \caption{Positive-class F1 across milestones (5-fold CV vs.\ 20\% held-out validation set).}
   \label{tab:results}
-  \setlength{\tabcolsep}{2.5pt}
+  \setlength{\tabcolsep}{2.0pt}
   \begin{tabular}{lcc}
     \toprule
     Model \& Configuration & CV F1 & Held-out \\
@@ -106,7 +103,7 @@ Table~\ref{tab:results} benchmarks all models on standardized development folds:
 \label{sec:leakage}
 Seven survey questions directly reference post-event care or secondary prevention: cardiac and stroke rehabilitation (\texttt{HAREHAB1}, \texttt{STREHAB1}), daily aspirin usage, and rationales (\texttt{CVDASPRN}, \texttt{RDUCHART}, \texttt{RDUCSTRK}, \texttt{RLIVPAIN}, \texttt{ASPUNSAF}). Notably, all 615 development respondents reporting cardiac rehabilitation (\texttt{HAREHAB1}) had positive heart diagnoses (and 158/158 on held-out data), representing severe target leakage \cite{kaufman2012leakage}.
 
-As shown in Table~\ref{tab:leak}, incorporating these seven features boosts classification F1 by $\approx 0.010$ across all models, elevating AIcrowd test F1 to 0.457 (88.3\% accuracy). However, this reflects reverse causality. A clinical screening model serves undiagnosed individuals before disease onset; because undiagnosed individuals are never prescribed cardiac rehabilitation, these responses do not exist in genuine screening populations. We strictly exclude these leaky questions from our official model to preserve screening validity, while documenting the leaky model as a competition benchmark (\texttt{run.py --with\_leakage}).
+As shown in Table~\ref{tab:leak}, incorporating these seven features boosts classification F1 by $\approx 0.010$ across all models, elevating AIcrowd test F1 to 0.457 (88.3\% accuracy). However, this reflects reverse causality: undiagnosed individuals in pre-event screening are never prescribed cardiac rehabilitation, meaning these responses do not exist before diagnosis. We strictly exclude these leaky questions from our official model to preserve screening validity, while documenting the leaky model as a competition benchmark (\texttt{run.py --with\_leakage}).
 
 \begin{table}[tbp]
   \centering
@@ -114,7 +111,7 @@ As shown in Table~\ref{tab:leak}, incorporating these seven features boosts clas
   \footnotesize
   \caption{Clean screening model vs.\ leaky competition variant across 5-fold CV, held-out data, and AIcrowd.}
   \label{tab:leak}
-  \setlength{\tabcolsep}{2.5pt}
+  \setlength{\tabcolsep}{2.0pt}
   \begin{tabular}{lcccc}
     \toprule
     Variant & CV F1 & Held-out & AIcrowd & Acc. \\
@@ -130,7 +127,7 @@ As shown in Table~\ref{tab:leak}, incorporating these seven features boosts clas
 
 \section{Discussion}
 \label{sec:discussion}
-All clean models plateau within 0.42--0.44 F1, reflecting an intrinsic information ceiling in self-reported telephone surveys. Error analysis reveals that false negatives are largely ``silent'' individuals: 56\% are female, 40\% lack diagnosed hypertension, 36\% report excellent/good health, and 96\% have no stroke history. On paper, these individuals exhibit zero classical warning signs, offering virtually no statistical signal in survey responses. Breaking this ceiling would require objective clinical measurements (e.g., lipid panels, ambulatory blood pressure, or ECG). Furthermore, public benchmark scores contain non-trivial variance: a minor 0.5\% shift in test positive prevalence moves F1 by $\approx 0.01$, showing that leaderboard differences partly reflect sampling noise.
+All clean models plateau within 0.42--0.44 F1, reflecting an intrinsic information ceiling in self-reported telephone surveys. Error analysis reveals that false negatives are largely ``silent'' individuals: 56\% are female, 40\% lack diagnosed hypertension, 36\% report excellent/good health, and 96\% have no stroke history. With virtually no classical warning signs in survey responses, breaking this ceiling requires objective clinical tests (e.g., lipid panels, ambulatory blood pressure, or ECG). Furthermore, public benchmark scores exhibit non-trivial variance: a 0.5\% shift in test prevalence moves F1 by $\approx 0.01$, showing leaderboard differences partly reflect sampling noise.
 
 \section{Conclusion}
 \label{sec:conclusion}
