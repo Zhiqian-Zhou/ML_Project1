@@ -147,10 +147,12 @@ ML_Project1/
 │   ├── submission_clean_sota.csv  # Track A Clean SOTA Model (0.447 F1, 14,876 positives)
 │   └── README.md                  # Submission log tracking
 │
-├── tests/                         # Unit tests
-│   └── test_preprocessing.py      # Zero-leakage pipeline assertions
+├── tests/                         # Unit tests (7/7 passed)
+│   ├── test_preprocessing.py      # Zero-leakage pipeline assertions
+│   └── test_training_coverage.py  # Model coverage & backward-compatibility assertions
 │
-└── docs/                          # Project coordination documents
+└── docs/                          # Project coordination & technical documentation
     ├── ROADMAP.md                 # Project milestone tracker
-    └── TEAM_GUIDE.md              # Project guidelines & grading criteria
+    ├── TEAM_GUIDE.md              # Project guidelines & grading criteria
+    └── TRAINING_COVERAGE_CONTRIBUTION.md # Training coverage hypothesis & screening findings
 ```
