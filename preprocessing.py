@@ -732,12 +732,8 @@ def select_columns(xc_train, names, rows, max_nan_ratio):
     col_max = np.where(nan, -np.inf, xc_train).max(axis=0)
     kept = []
     for j, name in enumerate(names):
-        # Allow high-AUC features, structured skip features, composite features, target risk features, or spec non-drop features
-        if (
-            name in HIGH_AUC_CDC_COLUMNS
-            or name.endswith("_CLEAN")
-            or name.endswith("_RISK")
-        ):
+        # Allow high-AUC features, structured skip features, composite features, or spec non-drop features
+        if name in HIGH_AUC_CDC_COLUMNS or name.endswith("_CLEAN"):
             pass
         elif name in (
             "VASCULAR_BURDEN",
