@@ -204,7 +204,6 @@ def main(argv=None):
     )
 
     # 2. Train the GBM and the MLP on all training rows, score the test rows.
-    components = {}
     scores = ensemble_scores(
         y_train,
         xc_train,
@@ -215,32 +214,8 @@ def main(argv=None):
         gbm_params={"refit_full": args.gbm_refit_full},
         mlp_params={"split_per_seed": args.mlp_split_per_seed, "verbose": False},
         gbm_weight=args.gbm_weight,
-        components=components,
     )
     log(t0, "GBM (3 seeds) and MLP (64 units, 10 seeds) trained and blended")
-
-    # Save continuous scores to disk for instant recalibration and offline analysis
-    out_dir = os.path.dirname(args.output or "submissions/submission.csv")
-    scores_file = (
-        "test_scores_with_leakage.npy" if args.with_leakage else "test_scores_clean.npy"
-    )
-    os.makedirs(out_dir or ".", exist_ok=True)
-    scores_file = scores_file.replace(".npy", args.variant_tag + ".npy")
-    scores_path = os.path.join(out_dir, scores_file)
-    np.save(scores_path, scores)
-    component_path = os.path.splitext(args.output)[0] + "_components.npz"
-    np.savez_compressed(
-        component_path,
-        ids=test_ids,
-        **components,
-        gbm_weight=args.gbm_weight,
-        top_rate=args.top_rate,
-        with_leakage=args.with_leakage,
-        mlp_split_per_seed=args.mlp_split_per_seed,
-        gbm_refit_full=args.gbm_refit_full,
-    )
-    log(t0, f"Saved reusable model scores to {component_path}")
-    log(t0, f"Saved continuous test scores to {scores_path}")
 
     # 3. Predict +1 for the top top_rate of the ensemble scores.
     y_pred = predict_labels(scores, np.quantile(scores, 1.0 - args.top_rate))
