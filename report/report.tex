@@ -12,6 +12,10 @@
 \usepackage{booktabs}
 \usepackage{microtype}
 
+\setlength{\textfloatsep}{8pt plus 1pt minus 2pt}
+\setlength{\floatsep}{10pt plus 2pt minus 2pt}
+\setlength{\intextsep}{8pt plus 1pt minus 2pt}
+
 \begin{document}
 \title{Predicting Coronary Heart Disease from BRFSS with Pure-NumPy Ensembles}
 
@@ -33,17 +37,17 @@ Coronary heart disease is a leading global cause of death, motivating low-cost s
 \label{sec:data}
 \textbf{Value and unit cleaning.} Following the CDC codebook \cite{brfss2015codebook}, sentinel value 88 (``none'') is mapped to 0, while 7 and 9 (``don't know''/``refused'') are treated as missing. Imperial and metric measurements (e.g., height, weight) are standardized to centimeters and kilograms.
 
-\textbf{Skip patterns and non-response.} Over 45\% of questions are $>50\%$ missing due to survey skip patterns rather than random omissions. For example, blood pressure medication (\texttt{BPMEDS}) is asked only of hypertensive respondents (16.3\% prevalence vs.\ 3.8\% when skipped). We apply eleven domain rules to infer implied negatives (e.g., no hypertension implies no medication). Because respondents answering ``don't know'' exhibit higher disease rates, we extract 61 binary uncertainty indicators as predictive risk features.
+\textbf{Skip patterns and non-response.} Over 45\% of questions are $>50\%$ missing due to survey skip logic rather than random omissions. For example, blood pressure medication (\texttt{BPMEDS}) is asked only of hypertensive respondents (16.3\% prevalence vs.\ 3.8\% when skipped). We apply eleven domain rules to infer implied negatives (e.g., no hypertension implies no medication). Because respondents answering ``don't know'' exhibit higher disease rates, we extract 61 binary uncertainty masks as predictive risk features.
 
 \textbf{Feature selection and pipeline.} We remove 6 constant columns, administrative IDs, columns $>95\%$ missing, and 44 collinear pairs ($|r|>0.9$), retaining 75 raw features, 2 engineered metrics, and 61 uncertainty masks (138 total). Heavily skewed continuous variables are compressed via $\log(1+x)$. We then perform median/mode imputation, standardization, one-hot encoding, and add 10 clinical interaction terms. To prevent data leakage, all preprocessing statistics are estimated strictly inside training folds.
 
 \section{Models and validation}
 \label{sec:models}
-\textbf{Validation protocol.} A stratified 20\% split (65,627 rows) is reserved as an independent held-out set. All model selection and hyperparameter tuning use 5-fold stratified cross-validation (CV) on the remaining 262,508 development rows.
+\textbf{Validation protocol.} A stratified 20\% split (65,627 rows) is held out for final evaluation; model selection and hyperparameter tuning use 5-fold stratified cross-validation (CV) on the remaining 262,508 development rows.
 
-\textbf{Linear baselines.} We evaluate the six course baseline methods in \texttt{implementations.py} \cite{cs433} on standardized features, using targets in $\pm1$ (mean squared error) and $\{0,1\}$ (logistic loss). Calibrated decision thresholds are essential under severe class imbalance.
+\textbf{Linear baselines.} We evaluate the six course baseline methods in \texttt{implementations.py} \cite{cs433} on standardized features, using targets in $\pm1$ (mean squared error) and $\{0,1\}$ (logistic loss).
 
-\textbf{Gradient boosted trees.} Decision trees naturally capture non-linear interactions without requiring monotonic scaling. We implement a histogram-based gradient boosted tree (GBM) \cite{friedman2001greedy} in NumPy, minimizing logistic loss with L2-regularized Newton leaf steps ($\lambda=5$) \cite{chen2016xgboost}. Features are partitioned into 64 quantile bins with dedicated missing bins. The model uses depth-5 trees, learning rate 0.05, subsampling ratios of 0.7 (rows) and 0.8 (columns), target-encoded state codes \cite{miccibarreca2001}, and early stopping.
+\textbf{Gradient boosted trees.} Decision trees naturally capture non-linear interactions without requiring monotonic scaling. We implement a histogram-based gradient boosted tree (GBM) \cite{friedman2001greedy} in NumPy, minimizing logistic loss with L2-regularized Newton leaf steps ($\lambda=5$) \cite{chen2016xgboost}. Features are grouped into 64 quantile bins with missing entries routed automatically. We use depth-5 trees, learning rate 0.05, subsampling (0.7 rows, 0.8 columns), target-encoded state codes \cite{miccibarreca2001}, and early stopping.
 
 \textbf{Neural network.} An MLP with 64 ReLU hidden units is implemented in NumPy to provide smooth continuous decision boundaries. Trained with Adam \cite{kingma2015adam} (learning rate $10^{-3}$, batch size 512, weight decay $10^{-3}$), logits are averaged across 10 random seeds to eliminate initialization variance.
 
@@ -51,21 +55,20 @@ Coronary heart disease is a leading global cause of death, motivating low-cost s
 
 \begin{figure}[tbp]
   \centering
-  \includegraphics[width=0.55\columnwidth]{figures/f1_vs_share.pdf}
+  \includegraphics[width=0.40\columnwidth]{figures/f1_vs_share.pdf}
   \vspace{-2mm}
-  \caption{CV F1 (mean $\pm$ std over 5 folds) vs.\ predicted positive share. Dotted: prevalence (8.83\%). Dashed: selected operating point (14\%).}
+  \caption{CV F1 (mean $\pm$ std over 5 folds) vs.\ predicted positive share. Dotted: prevalence (8.83\%). Dashed: chosen cutoff (14\%).}
   \label{fig:share}
-  \vspace{-3mm}
 \end{figure}
 
 \section{Results}
 \label{sec:results}
-Table~\ref{tab:results} summarizes performance across modeling stages on the standardized development folds. The experimental findings highlight three core drivers of classification success:
+Table~\ref{tab:results} benchmarks all models on standardized development folds:
 
 \begin{table}[tbp]
   \centering
   \footnotesize
-  \caption{Positive-class F1 across modeling milestones. CV: 5-fold on development set (mean $\pm$ std). Held-out: independent 20\% validation set.}
+  \caption{Positive-class F1 across milestones (5-fold CV vs.\ 20\% held-out validation set).}
   \label{tab:results}
   \setlength{\tabcolsep}{2.5pt}
   \begin{tabular}{lcc}
@@ -91,22 +94,23 @@ Table~\ref{tab:results} summarizes performance across modeling stages on the sta
   \vspace{-3mm}
 \end{table}
 
-\textbf{Impact of decision thresholding.} On raw logistic predictions, the default 0.5 cutoff yields an F1 of only 0.2302. Selecting the top 14\% highest-risk individuals elevates F1 to 0.4302 (+0.200), marking the single largest performance jump in the pipeline.
+\textbf{Impact of decision thresholding.} Due to class imbalance, the default 0.5 cutoff yields an F1 of only 0.2302. Selecting the top 14\% highest-risk individuals immediately elevates F1 to 0.4302 (+0.200 gain), marking the single largest performance jump in the pipeline.
 
-\textbf{Impact of data preprocessing.} Sentinel correction (88 to 0, 7/9 to missing), skip-logic reconstruction, and log-scaling raise tuned logistic CV F1 from 0.4277 to 0.4311, providing a solid baseline for modeling.
+\textbf{Impact of data preprocessing.} Raw survey responses introduce severe numerical distortions: for instance, code 88 (denoting zero sick days) is treated as a high-risk value of 88 if uncleaned. Resolving codebook sentinels (88 to 0, 7/9 to missing), reconstructing eleven skip-logic branches, and log-compressing activity outliers raise the tuned logistic regression CV F1 from 0.4277 to 0.4311, establishing a robust baseline for modeling.
 
-\textbf{Model comparison and ensembling.} Table~\ref{tab:results} summarizes the benchmark. Least squares, ridge, and batch GD yield identical solutions ($0.4216 \pm 0.0034$), whereas SGD lags at 0.3853 due to stochastic noise under class skew. Logistic regression achieves 0.4300. Custom NumPy models surpass the linear ceiling: histogram GBM reaches CV F1 0.4354, and the 10-seed MLP reaches 0.4334. Their 50/50 blend achieves the best performance (CV F1 0.4368, held-out F1 0.4340), scoring 0.447 with 87.7\% accuracy on AIcrowd.
+\textbf{Model comparison and ensembling.} Least squares, ridge, and batch GD yield identical solutions ($0.4216 \pm 0.0034$), whereas SGD lags at 0.3853 due to stochastic noise under class skew. Logistic regression achieves 0.4300. Custom NumPy models surpass the linear ceiling: histogram GBM reaches CV F1 0.4354, and the 10-seed MLP reaches 0.4334. Their 50/50 blend achieves the best performance (CV F1 0.4368, held-out F1 0.4340), scoring 0.447 with 87.7\% accuracy on AIcrowd.
 
-\textbf{Feature importance.} Test AUC permutation drops \cite{fawcett2006roc} identify the top risk factors: age (0.035 drop), general health (0.021), sex (0.018), high cholesterol (0.009), and prior stroke (0.008). Prior stroke confers a 4.24-fold risk lift, and $\ge 5$ chronic conditions carry a 3.72-fold lift.
+\textbf{Feature importance.} Evaluating permutation drops in test AUC \cite{fawcett2006roc} reveals the primary predictive drivers: age (0.035 drop), self-reported general health (0.021), sex (0.018), high cholesterol (0.009), and prior stroke history (0.008). Direct risk lifts corroborate this: a prior stroke multiplies coronary disease risk by 4.24, and $\ge 5$ chronic conditions carry a 3.72-fold risk lift.
 
 \section{Target leakage analysis}
 \label{sec:leakage}
-Seven survey questions reference post-event care: cardiac and stroke rehabilitation (\texttt{HAREHAB1}, \texttt{STREHAB1}), daily aspirin use, and rationales (\texttt{CVDASPRN}, \texttt{RDUCHART}, \texttt{RDUCSTRK}, \texttt{RLIVPAIN}, \texttt{ASPUNSAF}). Notably, all 615 development respondents reporting cardiac rehabilitation had positive diagnoses (and 158/158 on held-out data), representing severe target leakage \cite{kaufman2012leakage}.
+Seven survey questions directly reference post-event care or secondary prevention: cardiac and stroke rehabilitation (\texttt{HAREHAB1}, \texttt{STREHAB1}), daily aspirin usage, and rationales (\texttt{CVDASPRN}, \texttt{RDUCHART}, \texttt{RDUCSTRK}, \texttt{RLIVPAIN}, \texttt{ASPUNSAF}). Notably, all 615 development respondents reporting cardiac rehabilitation (\texttt{HAREHAB1}) had positive heart diagnoses (and 158/158 on held-out data), representing severe target leakage \cite{kaufman2012leakage}.
 
-Including these features boosts F1 by $\approx 0.010$ across models (Table~\ref{tab:leak}), elevating AIcrowd test F1 to 0.457 (88.3\% accuracy). However, this reflects reverse causality: undiagnosed individuals are never prescribed cardiac rehabilitation. We exclude these leaky questions from our official model to preserve screening validity, while documenting the leaky variant as a benchmark (\texttt{python run.py --with\_leakage}).
+As shown in Table~\ref{tab:leak}, incorporating these seven features boosts classification F1 by $\approx 0.010$ across all models, elevating AIcrowd test F1 to 0.457 (88.3\% accuracy). However, this reflects reverse causality. A clinical screening model serves undiagnosed individuals before disease onset; because undiagnosed individuals are never prescribed cardiac rehabilitation, these responses do not exist in genuine screening populations. We strictly exclude these leaky questions from our official model to preserve screening validity, while documenting the leaky model as a competition benchmark (\texttt{run.py --with\_leakage}).
 
 \begin{table}[tbp]
   \centering
+  \vspace{-2mm}
   \footnotesize
   \caption{Clean screening model vs.\ leaky competition variant across 5-fold CV, held-out data, and AIcrowd.}
   \label{tab:leak}
@@ -126,11 +130,11 @@ Including these features boosts F1 by $\approx 0.010$ across models (Table~\ref{
 
 \section{Discussion}
 \label{sec:discussion}
-All clean models plateau in the 0.42--0.44 F1 range, reflecting an information ceiling in self-reported survey data. Error analysis shows that false negatives are predominantly ``silent'' cases: 56\% female, 40\% without diagnosed hypertension, 36\% reporting excellent/good health, and 96\% without stroke history. Without classical risk factors, these cases offer negligible signal. Surpassing this ceiling requires clinical measurements (e.g., lipid panels, ECG). Moreover, benchmark scores show sample variance: a 0.5\% change in positive test prevalence shifts F1 by $\approx 0.01$, indicating that leaderboard differences partly reflect sampling noise.
+All clean models plateau within 0.42--0.44 F1, reflecting an intrinsic information ceiling in self-reported telephone surveys. Error analysis reveals that false negatives are largely ``silent'' individuals: 56\% are female, 40\% lack diagnosed hypertension, 36\% report excellent/good health, and 96\% have no stroke history. On paper, these individuals exhibit zero classical warning signs, offering virtually no statistical signal in survey responses. Breaking this ceiling would require objective clinical measurements (e.g., lipid panels, ambulatory blood pressure, or ECG). Furthermore, public benchmark scores contain non-trivial variance: a minor 0.5\% shift in test positive prevalence moves F1 by $\approx 0.01$, showing that leaderboard differences partly reflect sampling noise.
 
 \section{Conclusion}
 \label{sec:conclusion}
-Built from scratch in pure NumPy, our ensemble combining codebook-guided preprocessing, histogram GBMs, and an MLP achieves 0.434 held-out F1 and 0.447 on AIcrowd (87.7\% accuracy). We identified severe reverse-causality leakage in seven post-event questions that inflates F1 to 0.457 (88.3\% accuracy), and strictly excluded them to deliver a clinically valid pre-event screening system.
+Our pure-NumPy pipeline, combining codebook cleaning, histogram GBMs, and an MLP, achieves 0.434 held-out F1 and 0.447 on AIcrowd (87.7\% accuracy). We uncover severe target leakage in seven post-event questions that inflates F1 to 0.457 (88.3\% accuracy), and exclude them from our primary model to ensure clinical validity for undiagnosed screening populations.
 
 \newpage
 \bibliographystyle{IEEEtran}
