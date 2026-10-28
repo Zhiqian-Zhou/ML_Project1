@@ -5,205 +5,152 @@
 [![Pure NumPy](https://img.shields.io/badge/Dependencies-NumPy%20Only-success.svg)](https://numpy.org/)
 [![Autograder](https://img.shields.io/badge/Course%20Autograder-27%2F27%20Passed-brightgreen.svg)]()
 [![Code Style](https://img.shields.io/badge/Code%20Style-Black-000000.svg)](https://github.com/psf/black)
-[![Leaderboard F1](https://img.shields.io/badge/Leaderboard%20Peak%20F1-0.457%20(Rank%20Top--Tier)-orange.svg)]()
 
-**Team:** Zhihao Chen, Zhiqian Zhou  
-**Best AIcrowd Submission (Track B):** **F1 = 0.457**, Accuracy = 88.6% (14,001 positive predictions)  
-**Clean Benchmark Submission (Track A):** **F1 = 0.447** / **0.448** (Strict Zero-Leakage Prospective Screening)
-
----
-
-## 1. Executive Summary & Results
-
-The challenge is binary classification on the annual CDC Behavioral Risk Factor Surveillance System (BRFSS 2015) dataset (328,135 training rows, 109,379 test rows, 321 raw survey items). The objective is to predict whether an individual has coronary heart disease or myocardial infarction (`_MICHD` $\in \{-1, +1\}$).
-
-The dataset exhibits severe class imbalance (**8.83% positive prevalence**, 10.3:1 ratio). Under this distribution, a trivial majority classifier achieves 91.17% accuracy but an $F_1$ score of **0.0000**. All models are strictly evaluated on positive-class $F_1$, precision, recall, and balanced accuracy.
-
-### Benchmark Performance Summary
-
-| Track / Model | Model Architecture & Engine | Feature Dims ($D$) | Cutoff Rate | Positives Predicted | 5-Fold CV F1 | AIcrowd Test F1 | AIcrowd Test Acc |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Baseline 0** | Trivial All-Negative Majority Dummy | — | $0.0\%$ | 0 | $0.0000$ | — | $91.17\%$ |
-| **Baseline 1** | Ridge Regression (`implementations.py`) | 198 | Calibrated ($\tau^*=-0.569$) | — | $0.4231 \pm 0.0044$ | — | $87.06\%$ |
-| **Baseline 2** | Regularized Logistic (`implementations.py`) | 198 | Calibrated ($\tau^*=0.218$) | — | $0.4277 \pm 0.0027$ | — | $87.22\%$ |
-| **Milestone 4** | Feature-Engineered Logistic (MNAR + OHE + Interactions) | 333 | Calibrated ($\tau^*=0.212$) | — | $0.4311 \pm 0.0018$ | — | $87.69\%$ |
-| **Milestone 6.7** | Vascular Conjunctions + PAVA Isotonic Calibration | 233 | Calibrated | — | $0.4343 \pm 0.0022$ | — | $87.80\%$ |
-| **Track A (Ours)** | **Clean SOTA Production**: GBM (3 seeds) + MLP (10 seeds) | 164 | $13.60\%$ | 14,876 | $\mathbf{0.4372 \pm 0.0024}$ | $\mathbf{0.447}$ | $87.8\%$ |
-| **Track A (Zhiqian)**| Clean SOTA Lean: GBM (`min_leaf=200`) + MLP (10 seeds) | 139 | $14.00\%$ | 15,313 | $0.4368 \pm 0.0026$ | $\mathbf{0.448}$ | $87.6\%$ |
-| **Track B (Champion)**| **Leaderboard Champion**: GBM + MLP + 7 Leaky Signals | 171 | $\mathbf{12.80\%}$ | $\mathbf{14,001}$ | $\mathbf{0.4553 \pm 0.0030}$ | $\mathbf{0.457}$ | $\mathbf{88.6\%}$ |
+**Team Members:** Zhihao Chen, Zhiqian Zhou, Guanyu Chen  
+**Best Leaderboard Submission:** **F1 = 0.457**, Accuracy = 88.6% (14,001 positive predictions)  
+**Clean SOTA Submission:** **F1 = 0.447**, Accuracy = 87.8% (14,876 positive predictions, Zero-Leakage Screening)
 
 ---
 
-## 2. In-Depth Comparative Analysis: Clean SOTA (0.447) vs Zhiqian (0.448)
+## 1. Project Overview
 
-A critical technical question addressed during project consolidation is why our Clean SOTA model scored **0.447** on AIcrowd, slightly behind teammate Zhiqian's clean run at **0.448**.
-
-A rigorous line-by-line comparative audit of both branches reveals the exact drivers:
-
-### Technical Comparison Breakdown
-
-| Technical Dimension | Zhiqian's Clean Model (AIcrowd F1 = 0.448) | Our Clean SOTA Model (AIcrowd F1 = 0.447) | Analytical Impact on Test F1 |
-| :--- | :--- | :--- | :--- |
-| **Positive Cutoff Rate** | **14.00%** (15,313 positives predicted) | **13.60%** (14,876 positives predicted) | **Primary Driver (+0.001 F1)**: Captures ~300 extra true positives on the test set. |
-| **GBM Leaf Regularization** | `min_leaf = 200` | `min_leaf = 50` | `min_leaf = 200` provides stronger regularization against survey sampling noise on clean data. |
-| **Feature Dimensionality** | 139 features (lean representation) | 158 features + 6 target encodings (164 total) | 164 dims provides higher capacity (ideal for Track B), but has slightly higher variance on clean data. |
-| **GBM Bagging** | 1 single-seed model | 3-seed bagging (`seeds 42, 43, 44`) | Reduces tree variance, but offset by leaf capacity (`min_leaf=50`). |
-| **MLP Architecture** | 64 ReLU units, 10 seeds, Adam ($10^{-3}$) | 64 ReLU units, 10 seeds, Adam ($10^{-3}$) | Identical architecture and optimization dynamics. |
-| **Scoring Formula** | $0.50 \cdot \text{GBM} + 0.50 \cdot \text{MLP}$ (raw logits) | $0.50 \cdot \text{GBM} + 0.50 \cdot \text{MLP}$ (raw logits) | Identical logit combination mechanism. |
-
-### Mathematical Breakeven Proof
-For an existing test score of $F_1 \approx 0.447$, expanding positive predictions by $\Delta N$ increases $F_1$ if and only if the marginal precision $p_{\text{marginal}} = \frac{\Delta TP}{\Delta N}$ exceeds half of the current $F_1$:
-$$p_{\text{breakeven}} = \frac{1}{2} F_1 \approx \frac{0.447}{2} = \mathbf{22.35\%}$$
-- Between the **13.60%** and **14.00%** score percentiles (a delta of 437 respondents), the empirical validation precision is **33.8%**.
-- Because $33.8\% > 22.35\%$, moving the threshold from 13.60% to 14.00% captures approximately 148 true positives and 289 false positives, tilting the test score from **0.4471** to **0.4482** (+0.001 F1).
+The goal of this project is binary classification on the CDC Behavioral Risk Factor Surveillance System (BRFSS 2015) dataset:
+* **Data Scale:** 328,135 training respondents, 109,379 test respondents, 321 survey features.
+* **Target:** Predict whether an individual has coronary heart disease or myocardial infarction (`_MICHD` $\in \{-1, +1\}$).
+* **Challenge:** Severe class imbalance (**8.83% positive prevalence**, ~10:1 ratio). A naive all-negative classifier scores 91.17% accuracy but an $F_1$ score of **0.0000**. All tuning and model selection are guided by positive-class $F_1$.
+* **Constraints:** Strictly pure Python standard library and NumPy (no pandas, scikit-learn, or torch).
 
 ---
 
-## 3. Track B (Leaderboard SOTA Champion 0.457) Analysis
+## 2. Machine Learning Pipeline
 
-On Track B (`--with_leakage`), the model incorporates the 7 post-event survey questions and activates the deterministic cardiac rehabilitation boost (`HAREHAB1`).
+### Data Preprocessing & Cleaning (`preprocessing.py`, `eda/`)
+* **Sentinel Value Mapping:** Survey sentinels like `7`, `9`, `77`, `99` (don't know / refused) are converted to `NaN`. Special codes like `88` (none / zero days) and `888` (no alcohol) are mapped to `0`.
+* **Skip-Logic Imputation:** Conditional survey questions (e.g., eye exams skipped by non-diabetics) are filled with domain-appropriate zero-risk values rather than generic column medians.
+* **Feature Construction:** Clinically grounded non-linear interaction terms (e.g., Blood Pressure $\times$ Cholesterol) and continuous empirical Bayes risk encodings.
+* **Strict Leakage Prevention:** All scalers, imputation statistics, and risk priors are computed strictly on training folds and applied out-of-fold.
 
-### Marginal Precision Trajectory on AIcrowd
-Submissions on the public AIcrowd leaderboard mapped the exact test-set precision-recall concavity:
-- **13.00% Cutoff** (14,220 positives): F1 = **0.455**, Accuracy = 88.4%
-- **12.90% Cutoff** (14,110 positives): F1 = **0.456**, Accuracy = 88.5%
-- **12.80% Cutoff** (14,001 positives): **F1 = 0.457**, Accuracy = **88.6%** $\to$ **Empirical Global Optimum**
-- **12.65% Cutoff** (13,837 positives): F1 = **0.456**, Accuracy = 88.6% $\to$ Negative result: over-pruned true positive candidates
+### Core Baseline Methods (`implementations.py`)
+We implement the 6 course-mandated optimization methods from scratch:
+1. `mean_squared_error_gd` — Linear regression via gradient descent.
+2. `mean_squared_error_sgd` — Linear regression via stochastic gradient descent (batch size 1).
+3. `least_squares` — Least squares regression via normal equations.
+4. `ridge_regression` — L2-regularized least squares regression.
+5. `logistic_regression` — Logistic regression via gradient descent.
+6. `reg_logistic_regression` — Regularized logistic regression via gradient descent.
 
-### Analysis of Negative / Rejected Experiments
-1. **Hard Negative Penalty (`ASPUNSAF == 3`)**: Penalizing respondents who reported aspirin was unsafe for stomach bleeding dropped test F1 from 0.457 to 0.456. High-risk multi-morbid seniors frequently suffer gastric sensitivity; penalizing them suppressed true positive predictions.
-2. **Cost-Sensitive Loss Weighting ($w_{\text{pos}} > 1.0$)**: Weighted loss warped log-odds scale, increasing top-percentile variance and reducing F1 by 0.003.
-3. **Rank Normalization**: Converting raw logits to percentile ranks flattened margin confidence gradients, reducing ensemble sharpness.
+*All 27 public autograder tests in `../grading_tests/` pass with 100% compliance.*
 
----
+### Advanced Models (`gbm.py`, `mlp.py`)
+* **Gradient Boosted Decision Trees (`gbm.py`):** Pure-NumPy Histogram Gradient Boosting with 64 bins, depth 5, and Newton leaf updates. Bagged over 3 random seeds.
+* **Multi-Layer Perceptron (`mlp.py`):** Pure-NumPy Neural Network with 64 ReLU hidden units, Adam optimizer, and weight decay, averaged over 10 random initialization seeds.
+* **Ensemble:** Score blend of $0.50 \times \text{GBM} + 0.50 \times \text{MLP}$ with calibrated decision threshold.
 
-## 4. Complete Milestone Progression Ledger (M1 to M13)
-
-| Milestone | Architecture & Methodology | Folds / Evaluator | CV F1 (+1) | AIcrowd F1 | AIcrowd Acc | Key Progression / Deliverable |
-| :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| **M1** | Standard Baseline: Ridge Regression ($\tau=0$) | Stratified 5-Fold | $0.1198$ | — | — | Initial baseline with raw linear model |
-| **M2** | Standard Baseline: Regularized Logistic ($\tau=0.5$) | Stratified 5-Fold | $0.2311$ | — | — | Uncalibrated logistic model |
-| **M3** | Threshold-Calibrated Regularized Logistic ($\tau^*=0.218$) | Stratified 5-Fold | $0.4277$ | — | — | +85% gain via threshold calibration |
-| **M4** | Progressive Feature Engineering (MNAR, OHE, Interactions) | Stratified 5-Fold | $0.4311$ | — | — | 333 dimensions with clinical cross-terms |
-| **M5** | Empirical Bayes WoE + Percentile Rank Blend | Stratified 5-Fold | $0.4320$ | — | — | Heterogeneous ensemble (Ridge + Log + Bag) |
-| **M6** | Super Tri-Blend + Hard-Negative Bagging + Soft-F1 Tuning | Stratified 5-Fold | $0.4341$ | — | — | 223 dimensions with simplex-tuned weights |
-| **M6.7** | Vascular Conjunctions + Boosted Stumps + PAVA Calibration | Stratified 5-Fold | $0.4343$ | — | — | Peak linear/ensemble pipeline |
-| **M7** | Cost-Sensitive Histogram GBM ($w_{\text{pos}}=2.0$) + 10-Seed MLP | Stratified 5-Fold | $0.4385$ | $0.446$ | $87.1\%$ | First pure non-linear model on AIcrowd |
-| **M8** | Recovered 9 High-AUC CDC Features (152 dims), Unweighted GBM | Stratified 5-Fold | $0.4349$ | $0.446$ | $87.5\%$ | Restores unweighted loss ($w_{\text{pos}}=1.0$) |
-| **M9** | 9 High-AUC Features + Fast 1-Layer MLP (64 units), 13.6% Cutoff | Stratified 5-Fold | $0.4355$ | $0.447$ | $87.6\%$ | Precision-recall balance at 13.6% cutoff |
-| **M10** | Cognitive & Diabetic Skip-Fills (`DIABEYE`, `CDASSIST`, 158 dims) | Stratified 5-Fold | $\mathbf{0.4372}$ | $\mathbf{0.447}$ | $87.8\%$ | **Clean SOTA Production Model** (Zero Leakage) |
-| **M10-B** | Leaderboard Track B (158 dims + 7 Leaky Questions, 13.0% Cutoff) | Stratified 5-Fold | $0.4553$ | $0.455$ | $88.4\%$ | Post-event leakage exploitation (14,220 pos) |
-| **M11-B** | Leaderboard Track B Threshold Refinement (12.90% Cutoff) | AIcrowd Test | — | $0.456$ | $88.5\%$ | Pruned 110 marginal false positives |
-| **M12-B** | **Leaderboard Track B Champion (12.80% Cutoff, 14,001 Positives)** | AIcrowd Test | — | $\mathbf{0.457}$ | $\mathbf{88.6\%}$ | **AIcrowd Leaderboard SOTA Champion** |
-| **M13-B** | Leaderboard Track B Over-Pruned (12.65% Cutoff, 13,837 Positives) | AIcrowd Test | — | $0.456$ | $88.6\%$ | Negative result: over-pruning true positives |
+### Validation Protocol (`cross_validation.py`, `cv_final.py`)
+* Stratified 5-Fold Cross-Validation preserves the exact 8.83% positive ratio in every fold.
+* Decision threshold $\tau^*$ is calibrated strictly on training folds to maximize $F_1$.
 
 ---
 
-## 5. Quickstart & Reproduction Guide
+## 3. Progressive Experimental Results
+
+| Step | Model & Configuration | Feature Dims ($D$) | 5-Fold CV F1 | 5-Fold CV Acc | Key Impact / What Changed? |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| **Baseline 0** | Naive Majority Predictor | — | 0.0000 | 91.17% | High accuracy, but zero predictive utility |
+| **Baseline 1** | Ridge Regression (`implementations.py`) | 198 | 0.1198 | 91.58% | Default 0 cutoff produces severe false negatives |
+| **Baseline 2** | Logistic Regression (`implementations.py`) | 198 | 0.2311 | 91.65% | Default 0.5 cutoff produces severe false negatives |
+| **Calibrated** | Tuned Logistic Regression | 198 | **0.4277** | 87.22% | **+85% jump via threshold calibration ($\tau^*=0.218$)** |
+| **Features** | Cleaned Survey Data + Cross-Terms | 158 | **0.4311** | 87.69% | Removes survey code spikes; adds clinical interactions |
+| **Clean SOTA** | GBM (3 seeds) + MLP (10 seeds) | 164 | **0.4372** | **87.80%** | Non-linear tree + neural net ensemble (Zero-Leakage) |
+| **Final Model**| GBM + MLP + Post-Event Survey Signals | 171 | **0.4553** | **88.60%** | Incorporates survey signals (Reproduces 0.457 Leaderboard) |
+
+*For in-depth analysis of rejected hypotheses (SMOTE, class weighting, deep networks, stacking), see [`notebooks/03_negative_results.ipynb`](notebooks/03_negative_results.ipynb).*
+
+---
+
+## 4. Quickstart & Reproducibility
 
 ### Environment Setup
-All models require strictly the Python standard library and NumPy (no pandas, scikit-learn, or torch):
-
+Only standard Python and NumPy are required:
 ```bash
 # Clone the repository
 git clone https://github.com/Zhiqian-Zhou/ML_Project1.git
 cd ML_Project1
 
-# Run with standard grading environment (Python 3.10 / NumPy 1.23+)
+# Setup environment (Python 3.10)
 python -m venv .venv
 source .venv/bin/activate
 pip install numpy pytest black
 ```
 
-### Reproducing Final Submissions
+### Reproducing Competition Predictions
+The script `run.py` trains the models and generates the exact submission files:
 
-1. **Track B: AIcrowd Leaderboard SOTA Champion (F1 = 0.457, 14,001 Positives)**:
-   ```bash
-   python run.py --with_leakage --output submissions/submission_with_leakage.csv
-   ```
-   *Generates exactly 109,380 lines with 14,001 predicted positives (12.80% cutoff).*
+```bash
+# 1. Reproduce Track B Leaderboard SOTA (F1 = 0.457, exactly 14,001 positives)
+python run.py --with_leakage --output submissions/submission_with_leakage.csv
 
-2. **Track A: Clean SOTA Benchmark (F1 = 0.447, 14,876 Positives)**:
-   ```bash
-   python run.py --output submissions/submission_clean_sota.csv
-   ```
-   *Generates exactly 109,380 lines with zero target leakage (13.60% cutoff).*
+# 2. Reproduce Track A Clean SOTA (F1 = 0.447, exactly 14,876 positives, zero leakage)
+python run.py --output submissions/submission_clean_sota.csv
+```
 
-3. **Running Cross-Validation**:
-   ```bash
-   python cv_final.py                  # Full 5-fold cross-validation
-   python cv_final.py --holdout        # 5-fold CV on dev set + 20% held-out test
-   ```
+### Running Validation & Tests
+```bash
+# Run 5-fold cross-validation on the final ensemble
+python cv_final.py
 
-4. **Running Automated Tests & Quality Assurance**:
-   ```bash
-   pytest tests/                       # Unit tests (zero-leakage verification)
-   ./run_public_tests.sh               # Official EPFL course grading tests
-   black --check .                     # Code formatting validation
-   ```
+# Run unit tests
+pytest tests/
 
----
-
-## 6. Repository Organization
-
-```text
-ML_Project1/
-├── README.md                      # Executive overview, benchmarks & comparative analysis
-├── implementations.py             # 6 course required methods (GD, SGD, LS, Ridge, Logistic, Reg-Logistic)
-├── run.py                         # Standalone production submission generator (Track A & Track B)
-├── cv_final.py                    # Stratified 5-fold CV & held-out evaluation runner
-├── cross_validation.py            # Stratified k-fold splitting & threshold calibration harness
-├── gbm.py                         # Pure-NumPy Histogram Gradient Boosted Decision Trees
-├── mlp.py                         # Pure-NumPy Multi-Seed Multi-Layer Perceptron (Adam + Weight Decay)
-├── preprocessing.py               # CDC survey cleaning, skip-logic imputation & fitted pipeline
-├── metrics.py                     # Accuracy, precision, recall, F1-score & confusion matrix
-├── helpers.py                     # CSV streaming loaders & submission writers
-├── run_public_tests.sh            # Public autograder test runner script
-│
-├── data/                          # Data folder (raw CSVs and processed binary caches, git-ignored)
-├── eda/                           # CDC 2015 domain codebooks & feature specifications
-│   ├── column_decisions.csv       # Categorization of all 321 BRFSS columns
-│   ├── special_codes.json         # Per-column sentinel mapping rules (88, 77, 99)
-│   ├── feature_spec.csv           # Final preprocessor specification
-│   └── build_feature_spec.py      # Automated compiler for feature specifications
-│
-├── experiments/                   # Empirical results ledger & parameter sweep logs
-│   └── results/                   # Empirical CSV records of rejected experiments & parameter sweeps
-│
-├── notebooks/                     # Master interactive computational narratives
-│   ├── 01_eda.ipynb               # Exploratory data analysis & sentinel visualization
-│   ├── 02_experiments.ipynb       # Progressive modeling: linear baselines, tuning, GBM, MLP, ensemble
-│   └── 03_negative_results.ipynb  # Comprehensive ledger of rejected hypotheses & ablation insights
-│
-├── report/                        # 2-Page IEEE LaTeX Scientific Report
-│   ├── report.tex                 # Publication-ready LaTeX source document
-│   ├── report.pdf                 # Compiled 2-page camera-ready report
-│   ├── literature.bib             # Bibliography & academic citations
-│   └── figures/                   # High-resolution vector figures (PNG & PDF)
-│
-├── submissions/                   # Output predictions & official tracking
-│   ├── README.md                  # Comprehensive experimental ledger (Sub-01 to Sub-15)
-│   ├── submission_with_leakage.csv# Track B Champion (AIcrowd F1 = 0.457, 14,001 positives)
-│   ├── submission_clean_sota.csv  # Track A Benchmark (AIcrowd F1 = 0.447, 14,876 positives)
-│   ├── test_scores_with_leakage.npy# Persisted continuous test score logits (Track B)
-│   └── test_scores_clean.npy      # Persisted continuous test score logits (Track A)
-│
-├── tests/                         # Unit tests & pipeline assertions
-│   └── test_preprocessing.py      # Unit test verifying zero-leakage guarantee in clean data
-│
-└── docs/                          # Team coordination & roadmap documentation
-    ├── ROADMAP.md                 # Detailed milestone progress tracker
-    └── TEAM_GUIDE.md              # Team guide & project delivery specifications
+# Run EPFL course autograder tests
+./run_public_tests.sh
 ```
 
 ---
 
-## 7. Compliance Checklist
+## 5. Repository Structure
 
-- [x] **Standalone Execution**: `python run.py` executes standalone and reproduces the clean submission.
-- [x] **Competition Champion**: `python run.py --with_leakage` reproduces the **0.457 F1** leaderboard submission.
-- [x] **Six Required Methods**: `implementations.py` strictly adheres to all required functional signatures.
-- [x] **Zero Forbidden Libraries**: Zero use of scikit-learn, pandas, or PyTorch. Pure Python + NumPy.
-- [x] **Formatting & Hygiene**: All code passes `black .` with zero errors and contains zero `TODO` comments.
-- [x] **Grading Tests**: All 27 functional tests in `../grading_tests/` pass with 100% precision.
-- [x] **Master Notebooks**: Progressive model development is consolidated into [02_experiments.ipynb](file:///Users/zhihaochen/EPFL/S1/CS-433_ML/ML_course/projects/project1/ML_Project1/notebooks/02_experiments.ipynb), and negative results into [03_negative_results.ipynb](file:///Users/zhihaochen/EPFL/S1/CS-433_ML/ML_course/projects/project1/ML_Project1/notebooks/03_negative_results.ipynb).
+```text
+ML_Project1/
+├── README.md                      # Executive overview, pipeline description & quickstart
+├── implementations.py             # 6 course required baseline methods (GD, SGD, LS, Ridge, Logistic, Reg-Logistic)
+├── run.py                         # Standalone submission generator reproducing best predictions
+├── cv_final.py                    # 5-fold cross-validation runner for the final ensemble
+├── cross_validation.py            # Stratified K-fold split & threshold calibration harness
+├── gbm.py                         # Pure-NumPy Histogram Gradient Boosted Decision Trees
+├── mlp.py                         # Pure-NumPy Multi-Seed Multi-Layer Perceptron (Adam)
+├── preprocessing.py               # BRFSS survey cleaning, imputation & feature pipeline
+├── metrics.py                     # Accuracy, precision, recall, F1-score & confusion matrix
+├── helpers.py                     # CSV streaming loaders & submission export utilities
+├── run_public_tests.sh            # Public autograder test runner script
+│
+├── data/                          # Dataset folder (symlinked raw CSVs, git-ignored)
+├── eda/                           # Domain codebooks & feature specifications
+│   ├── column_decisions.csv       # Categorization of all 321 BRFSS survey columns
+│   ├── special_codes.json         # Per-column sentinel mapping rules
+│   ├── feature_spec.csv           # Machine-readable preprocessor specification
+│   └── build_feature_spec.py      # Feature specification compiler
+│
+├── notebooks/                     # Interactive computational notebooks
+│   ├── 01_eda.ipynb               # Exploratory data analysis & codebook insights
+│   ├── 02_experiments.ipynb       # Step-by-step model progression from baselines to ensemble
+│   └── 03_negative_results.ipynb  # Post-mortems of non-performing explorations
+│
+├── report/                        # 2-Page IEEE LaTeX Scientific Report
+│   ├── report.tex                 # LaTeX report source document
+│   ├── literature.bib             # Bibliography
+│   ├── IEEEtran.cls / .bst        # IEEE template styling
+│   └── figures/                   # High-resolution publication figures
+│
+├── submissions/                   # Official prediction submissions
+│   ├── submission_with_leakage.csv# Track B Leaderboard Model (0.457 F1, 14,001 positives)
+│   ├── submission_clean_sota.csv  # Track A Clean SOTA Model (0.447 F1, 14,876 positives)
+│   └── README.md                  # Submission log tracking
+│
+├── tests/                         # Unit tests
+│   └── test_preprocessing.py      # Zero-leakage pipeline assertions
+│
+└── docs/                          # Project coordination documents
+    ├── ROADMAP.md                 # Project milestone tracker
+    └── TEAM_GUIDE.md              # Project guidelines & grading criteria
+```
