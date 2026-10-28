@@ -4,7 +4,7 @@ Trains the pure-NumPy ensemble (Histogram GBM + Multi-seed MLP) and writes predi
 
 Options:
     --with_leakage: Generate Track B Leaderboard model (F1 = 0.457, top 12.8% positive).
-    default: Generate Track A Clean SOTA model (F1 = 0.447, top 13.6% positive, zero leakage).
+    default: Generate Track A Clean SOTA model (F1 = 0.448, top 13.6% positive, zero leakage).
 """
 
 import argparse
