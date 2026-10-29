@@ -108,7 +108,7 @@ def run_training(args):
     print(f"Output Checkpoint: {args.weights}")
     print("=" * 70)
 
-    y_train, x_train, x_test, _, test_ids = load_data_cached(args.data_path)
+    x_train, x_test, y_train, train_ids, test_ids = load_data_cached(args.data_path)
     raw_names = load_feature_names(args.data_path)
     print(
         f"[{time.time() - t0:5.1f}s] Loaded training data: {x_train.shape}, {len(raw_names)} features"

@@ -632,6 +632,13 @@ def score_mlp(model, tx):
 # ==============================================================================
 
 
+def _fit_single_gbm_worker(seed, tx_gbm, y):
+    """Worker function for parallel GBDT training across seeds."""
+    model = GradientBoostedTrees(seed=seed)
+    model.fit(tx_gbm, y)
+    return model
+
+
 class CardiacEnsemble:
     """End-to-end composite model combining GBDT and MLP with clinical priors."""
 
@@ -671,23 +678,22 @@ class CardiacEnsemble:
 
         # 1. Feature cleaning and empirical Bayes risk tables
         xc, names, leaky = model_inputs(x_raw, raw_names, self.with_leakage)
-        self.names = names
-        self.risk_tables, names_enc = fit_target_risk_encodings(y, xc, names)
-        xc_enc, _ = apply_target_risk_encodings(xc, names, self.risk_tables)
+        xc_enc, names_enc, self.risk_tables = fit_target_risk_encodings(y, xc, names)
+        self.names = names_enc
         tree_block = leaky[0] if leaky is not None else None
         flag_block = leaky[1] if leaky is not None else None
 
         # 2. Fit 3-seed GBDT ensemble in parallel
         tx_gbm = tree_features(xc_enc, names_enc, tree_block)
         seeds = [42, 43, 44]
-
-        def _worker(s):
-            m = GradientBoostedTrees(seed=s)
-            m.fit(tx_gbm, y)
-            return m
-
-        with ProcessPoolExecutor(max_workers=min(n_jobs, 3)) as pool:
-            self.gbm_models = list(pool.map(_worker, seeds))
+        if n_jobs > 1:
+            with ProcessPoolExecutor(max_workers=min(n_jobs, 3)) as pool:
+                futures = [
+                    pool.submit(_fit_single_gbm_worker, s, tx_gbm, y) for s in seeds
+                ]
+                self.gbm_models = [f.result() for f in futures]
+        else:
+            self.gbm_models = [_fit_single_gbm_worker(s, tx_gbm, y) for s in seeds]
 
         # 3. Fit neural network preprocessor and 10-seed MLP
         self.mlp_state = fit_preprocessor(
