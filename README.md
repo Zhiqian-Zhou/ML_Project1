@@ -169,8 +169,9 @@ ML_Project1/
 │   ├── submission_with_leakage.csv# Track B Leaderboard Model (0.457 F1, 14,001 positives)
 │   └── submission_clean_sota.csv  # Track A Clean SOTA Model (0.447 F1, 14,876 positives)
 │
-├── tests/                         # Unit tests (7/7 passed)
+├── tests/                         # Unit tests (11/11 passed)
 │   ├── test_preprocessing.py      # Zero-leakage pipeline assertions
+│   ├── test_preprocessing_contracts.py # Imputation & feature contract assertions
 │   └── test_training_coverage.py  # Model coverage & backward-compatibility assertions
 │
 └── docs/                          # Project coordination & technical documentation

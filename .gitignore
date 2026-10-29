@@ -27,6 +27,11 @@ report/*.blg
 report/*.log
 report/*.out
 report/*.synctex.gz
+report/*.fdb_latexmk
+report/*.fls
+
+# Scratch & temporary
+scratch/
 
 # OS / editors
 .DS_Store
