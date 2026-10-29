@@ -371,7 +371,7 @@ def parse_args(argv=None):
     parser.add_argument(
         "--holdout",
         action="store_true",
-        help="Evaluate 80% dev CV and 20% held-out test",
+        help="Evaluate 80/20 dev CV and held-out test",
     )
     parser.add_argument(
         "--k_fold", type=int, default=5, help="Number of folds (default: 5)"

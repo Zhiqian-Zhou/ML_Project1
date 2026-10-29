@@ -7,50 +7,55 @@
 [![Code Style](https://img.shields.io/badge/Code%20Style-Black-000000.svg)](https://github.com/psf/black)
 
 **Team Members:** Zhihao Chen, Zhiqian Zhou, Guanyu Chen  
+**Affiliation:** School of Computer and Communication Sciences, EPFL, Switzerland  
 **Track B Champion Model (Leaderboard Benchmark):** **F1 = 0.457**, Accuracy = 88.3% (14,001 positive predictions)  
-**Track A Clean SOTA Model (Official Screening Tool):** **F1 = 0.447**, Accuracy = 87.7% (14,876 positive predictions, Zero-Leakage)
+**Track A Clean SOTA Model (Official Screening Tool):** **F1 = 0.447**, Accuracy = 87.7% (14,876 positive predictions, Zero-Leakage)  
 
 ---
 
 ## 1. Project Overview
 
-The goal of this project is binary classification on the CDC Behavioral Risk Factor Surveillance System (BRFSS 2015) dataset:
+The objective of this project is binary classification on the CDC Behavioral Risk Factor Surveillance System (BRFSS 2015) dataset:
 * **Data Scale:** 328,135 training respondents, 109,379 test respondents, 321 survey features.
 * **Target:** Predict whether an individual has coronary heart disease or myocardial infarction (`_MICHD` $\in \{-1, +1\}$).
-* **Challenge:** Severe class imbalance (**8.83% positive prevalence**, ~10:1 ratio). A naive all-negative classifier scores 91.17% accuracy but an $F_1$ score of **0.0000**. All tuning and model selection are guided strictly by positive-class $F_1$.
-* **Constraints:** Built strictly from scratch in pure Python standard library and NumPy (no pandas, scikit-learn, or torch).
+* **Core Challenge:** Extreme class imbalance (**8.83% positive prevalence**, ~10:1 negative-to-positive ratio; 28,969 positive vs. 299,166 negative in training data). A naive all-negative classifier achieves 91.17% accuracy but an $F_1$ score of **0.0000**. All tuning, validation, and model selection are guided strictly by positive-class $F_1$.
+* **Project Constraints:** Built strictly from scratch in pure Python standard library and NumPy (strictly zero dependencies on pandas, scikit-learn, or PyTorch).
 
 ---
 
-## 2. Machine Learning Pipeline
+## 2. Machine Learning Architecture & OOP Design
 
 ### Data Preprocessing & Cleaning (`preprocessing.py`, `eda/`)
-* **Sentinel Value Mapping:** Survey sentinels like `7`, `9`, `77`, `99` (don't know / refused) are converted to `NaN`. Codes `88` (none / zero days) and `888` (no alcohol) are mapped to `0`. Imperial and metric measurements are standardized to centimeters and kilograms.
-* **Skip-Logic Imputation:** Over 45% of questions are $>50\%$ missing due to branching logic rather than random non-response. Eleven domain rules infer implied negatives (e.g., non-hypertensive respondents never take blood pressure medication).
-* **Informative Missingness & Feature Selection:** 61 binary uncertainty masks (`_dk`) are extracted as predictive features. We drop 6 constant columns, administrative IDs, columns $>95\%$ missing, and 44 collinear pairs ($|r|>0.9$), retaining 75 raw features, 2 engineered metrics, and 61 masks (138 total).
-* **Clinical Interactions:** 10 pairwise non-linear clinical terms (e.g., Age $\times$ General Health, Age $\times$ Blood Pressure) and empirical Bayes smoothed target risk encodings.
-* **Zero Data Leakage:** All imputation medians, one-hot categories, and scaling statistics are estimated strictly inside training folds.
+* **`BRFSSCleaner`:**
+  * **Sentinel Value Mapping:** Survey sentinels like `7`, `9`, `77`, `99` (don't know / refused) are mapped to `NaN`. Codes `88` (none / zero days) and `888` (no alcohol) are mapped to `0`. Imperial and metric measurements are standardized to centimeters and kilograms.
+  * **Skip-Logic Imputation:** Over 45% of questions are $>50\%$ missing due to branching survey logic rather than random non-response. Eleven domain rules infer implied negatives (e.g., non-hypertensive respondents are never prescribed blood pressure medication `BPMEDS`).
+  * **Informative Missingness & Feature Selection:** 61 binary uncertainty masks (`_dk`) are extracted as predictive risk features. We drop 6 constant columns, administrative IDs, columns $>95\%$ missing, and 44 collinear pairs ($|r|>0.9$), retaining 75 raw features, 2 engineered metrics, and 61 masks (138 total).
+* **`TargetRiskEncoder`:**
+  * Performs smoothed empirical Bayes target encoding for high-cardinality state codes (`_STATE`), eliminating categorical sparsity without high-dimensional one-hot inflation.
+* **`TabularPreprocessor`:**
+  * Orchestrates the complete pipeline, fits medians and standardizers strictly within training folds, and computes 10 non-linear pairwise clinical interaction terms with zero data leakage.
 
 ### Core Baseline Methods (`implementations.py`)
-We implement all 6 course-mandated optimization methods from scratch:
-1. `mean_squared_error_gd` — Linear regression via gradient descent.
-2. `mean_squared_error_sgd` — Linear regression via stochastic gradient descent (batch size 1).
-3. `least_squares` — Least squares regression via normal equations.
-4. `ridge_regression` — L2-regularized least squares regression.
-5. `logistic_regression` — Logistic regression via gradient descent.
-6. `reg_logistic_regression` — Regularized logistic regression via gradient descent.
+All 6 course-mandated optimization methods are implemented from scratch in pure NumPy:
+1. `mean_squared_error_gd(y, tx, initial_w, max_iters, gamma)` — Linear regression via gradient descent.
+2. `mean_squared_error_sgd(y, tx, initial_w, max_iters, gamma)` — Linear regression via stochastic gradient descent (batch size 1).
+3. `least_squares(y, tx)` — Least squares regression via closed-form normal equations.
+4. `ridge_regression(y, tx, lambda_)` — Ridge regression with L2 regularization.
+5. `logistic_regression(y, tx, initial_w, max_iters, gamma)` — Logistic regression via gradient descent with numerically stable log-loss.
+6. `reg_logistic_regression(y, tx, lambda_, initial_w, max_iters, gamma)` — Regularized logistic regression with L2 penalty via gradient descent.
 
 *All 27 public autograder tests in `../grading_tests/` pass with 100% compliance.*
 
 ### Advanced Models (`models.py`)
-* **Histogram Gradient Boosted Decision Trees (`models.py`):** Pure-NumPy Histogram GBDT with 64 quantile bins, depth 5, Newton second-order leaf steps ($\lambda=5$), row/col subsampling, and validation early stopping.
-* **Multi-Layer Perceptron (`models.py`):** Pure-NumPy Neural Network with 64 ReLU hidden units, Adam optimizer, weight decay, and multi-seed logit averaging (10 random seeds).
-* **Ensemble (`models.py`):** $0.50 \times \text{GBM} + 0.50 \times \text{MLP}$ blended logits with calibrated decision cutoff.
+* **`GradientBoostedTrees`:** Pure-NumPy Histogram GBDT with 64 quantile bins, depth 5, Newton second-order leaf steps with L2 shrinkage ($\lambda=5$), row subsampling (0.7), column subsampling (0.8), missing value direction routing, and validation early stopping.
+* **`MLPEnsemble`:** Pure-NumPy Multi-Layer Perceptron (64 ReLU hidden units, Adam optimizer, learning rate $10^{-3}$, weight decay $10^{-3}$, batch size 512, averaged across 10 random seeds).
+* **`CardiacEnsemble`:** High-level OOP coordinator blending GBDT and MLP logits ($0.50 \times \text{GBM} + 0.50 \times \text{MLP}$), post-event feature toggle (`with_leakage`), clinical prior adjustment rules, and calibrated percentile thresholding. Provides full `.fit()`, `.predict()`, `.save()`, and `.load()`.
 
 ### Validation Protocol (`cross_validation.py`)
-* **80% Development Split** (262,508 rows): Stratified 5-Fold Cross-Validation preserves the exact 8.83% positive prevalence in every fold.
-* **20% Held-Out Split** (65,627 rows, seed 2026): Completely isolated for final validation prior to AIcrowd submission.
-* **Calibrated Decision Rule:** Rather than an arbitrary 0.5 probability cutoff, models classify the top-scored fraction of individuals as positive (Top 14% for clean screening, Top 13% for leaky competition model).
+* **`StratifiedKFold`:** Preserves the exact 8.83% positive prevalence in every fold.
+* **`HoldoutSplitter`:** Stratified 80/20 train/held-out split (262,508 development rows vs. 65,627 held-out validation rows, random seed 2026).
+* **`EnsembleCrossValidator` & `LinearBaselineValidator`:** Full evaluation harnesses for cross-validation and held-out validation.
+* **Calibrated Percentile Thresholding:** Rather than an arbitrary 0.5 probability cutoff, models classify the top-scored fraction of individuals as positive (Top 14% for clean screening, Top 13% for leaky competition model). Invariant to score shift across folds, achieving maximum positive-class $F_1$.
 
 ---
 
@@ -78,7 +83,7 @@ We implement all 6 course-mandated optimization methods from scratch:
 | **Track B: Leaky Benchmark** | Exploits post-event questions (Top 13%) | $0.4464 \pm 0.0032$ | 0.4445 | **0.457** | **88.3%** |
 | **Performance Gain ($\Delta$)** | Target leakage inflation | $+0.0096$ | $+0.0105$ | $\mathbf{+0.0100}$ | $\mathbf{+0.6\%}$ |
 
-> **Clinical Governance Principle:** Seven survey questions reference care *after* an event (cardiac/stroke rehab `HAREHAB1`, `STREHAB1`, secondary prevention aspirin `CVDASPRN`, `RDUCHART`, `RDUCSTRK`, `RLIVPAIN`, `ASPUNSAF`). Notably, 100% of respondents reporting cardiac rehab had heart disease (773/773 total). Because undiagnosed patients in pre-event screening are never prescribed cardiac rehab, these questions are reverse-causal. We strictly exclude them from our official model (Track A), while benchmarking the leaky model as Track B.
+> **Clinical Target Leakage Analysis:** Seven survey questions reference care *after* an event: cardiac and stroke rehabilitation (`HAREHAB1`, `STREHAB1`), daily aspirin usage, and rationales (`CVDASPRN`, `RDUCHART`, `RDUCSTRK`, `RLIVPAIN`, `ASPUNSAF`). Notably, 100% of respondents reporting cardiac rehab had heart disease (615/615 on dev, 158/158 on held-out, 773/773 total). Because undiagnosed patients in pre-event screening are never prescribed cardiac rehab, these questions are reverse-causal. We strictly exclude them from our official clinical screening tool (Track A, F1 = 0.447), while documenting the leaky model as the competition benchmark (Track B, F1 = 0.457).
 
 *For detailed post-mortems on rejected hypotheses (SMOTE, class weighting, deep networks, stacking), see [`notebooks/03_negative_results.ipynb`](notebooks/03_negative_results.ipynb).*
 
@@ -99,6 +104,16 @@ source .venv/bin/activate
 pip install numpy matplotlib pytest black
 ```
 
+### Dataset Placement
+Unzip the project dataset CSV files into `data/dataset/`:
+```text
+data/dataset/
+├── x_train.csv           # 328,135 rows, Id + 321 features
+├── y_train.csv           # Id, _MICHD (labels in {-1, 1}, ~8.8% positives)
+├── x_test.csv            # 109,379 rows, Id + 321 features
+└── sample_submission.csv # Expected submission format
+```
+
 ### Reproducing Competition Predictions (Fast Inference, ~12s)
 In accordance with course project guidelines:
 > *"If training takes a long time, this run.py can include only inference (loading pretrained weights and generating predictions), but then please also explain where to find the code for training these weights."*
@@ -113,8 +128,8 @@ python run.py
 python run.py --clean
 ```
 
-### Retraining Models from Scratch
-The complete training pipeline is integrated directly into `run.py`. Utilizing process-pool parallelization across seeds, training finishes in ~4 minutes:
+### Retraining Models from Scratch (~4m)
+The complete training pipeline is integrated directly into `run.py`. Utilizing process-pool parallelization across CPU cores, training completes in ~4 minutes:
 
 ```bash
 # 1. Retrain Track B Champion Model from scratch and export weights
@@ -124,12 +139,36 @@ python run.py --train
 python run.py --train --clean
 ```
 
-### Running Validation, Notebooks & Test Suite
+### Running Cross-Validation & Evaluation
 ```bash
-# Run 5-fold cross-validation suite
+# Evaluate 5-fold cross-validation (default: with leakage)
 python cross_validation.py
 
-# Run project unit tests (11/11 passed)
+# Evaluate Track A clean screening model across 5 folds
+python cross_validation.py --clean
+
+# Evaluate clean model on both 5-fold CV and 20% held-out test split
+python cross_validation.py --clean --holdout
+
+# Fast smoke check on 10,000 rows (~5 seconds)
+python cross_validation.py --clean --n_rows 10000
+```
+
+### Interactive Computational Notebooks
+All notebooks in `notebooks/` are pre-executed with pre-rendered interactive figures and markdown tables:
+* [`notebooks/01_eda.ipynb`](notebooks/01_eda.ipynb): 321-column survey analysis, codebook sentinel mapping, skip logic reconstruction, informative missingness discovery, and target leakage detection.
+* [`notebooks/02_experiments.ipynb`](notebooks/02_experiments.ipynb): The complete computational laboratory:
+  * Live training and benchmark of all 6 baseline algorithms (`implementations.py`).
+  * Live threshold tuning ($\tau \in [0.05, 0.50]$) illustrating the jump from 0.21 to 0.41 F1.
+  * Live stratified 3-fold cross validation with fold-isolated preprocessing.
+  * Live advanced model fitting: Histogram GBDT and Neural Network MLP ensemble.
+  * Live Clean vs. Leaky dual-track comparison demonstrating the leakage boost.
+  * Empirical grounding of Report Table I, Figure 1, Table II, feature importances, and clinical rules.
+* [`notebooks/03_negative_results.ipynb`](notebooks/03_negative_results.ipynb): Empirical post-mortems of rejected hypotheses (SMOTE oversampling, inverse-frequency class weighting, deep architectures, stacking meta-learners).
+
+### Test Suite Execution
+```bash
+# Run project unit tests (11/11 passed in 0.22s)
 pytest tests/
 
 # Run course autograder compliance suite (27/27 passed)
@@ -164,15 +203,22 @@ ML_Project1/
 │       ├── feature_importance.csv # Permutation AUC drops (Report Section IV)
 │       ├── rules.csv              # High-risk clinical rules and lifts (Report Section IV)
 │       ├── leaky_columns.csv      # Single-column target leakage ablation (Report Section V)
-│       └── rejected.csv           # Post-mortems of rejected hypotheses (Report Section VI)
+│       ├── leakage_ablation.csv   # Cumulative leakage addition ablation
+│       ├── rejected.csv           # Post-mortems of rejected hypotheses (Report Section VI)
+│       ├── baselines_full.csv     # Extended baseline sweep logs
+│       ├── final_cv_folds.csv     # Fold-by-fold validation logs
+│       └── training_coverage.json # Model training coverage registry
 │
-├── data/                          # Dataset folder (symlinked raw CSVs, git-ignored)
+├── data/                          # Dataset folder (raw CSVs, git-ignored)
+│   └── README.md                  # Instructions for placing BRFSS survey CSVs
+│
 ├── eda/                           # Domain codebooks & feature specifications
 │   ├── column_decisions.csv       # Categorization of all 321 BRFSS survey columns
 │   ├── special_codes.json         # Per-column sentinel mapping rules
-│   └── feature_spec.csv           # Machine-readable preprocessor specification
+│   ├── feature_spec.csv           # Machine-readable preprocessor specification
+│   └── build_feature_spec.py      # Spec builder utility
 │
-├── notebooks/                     # Interactive computational notebooks
+├── notebooks/                     # Interactive computational notebooks (pre-rendered)
 │   ├── 01_eda.ipynb               # Exploratory data analysis, skip patterns & leakage discovery
 │   ├── 02_experiments.ipynb       # Live training suite (all 6 baselines, GBDT, MLP, CV) & report benchmarks
 │   └── 03_negative_results.ipynb  # Rigorous post-mortems of rejected hypotheses
@@ -182,14 +228,31 @@ ML_Project1/
 │   ├── report.pdf                 # Compiled 2-page publication PDF
 │   ├── literature.bib             # Bibliography
 │   ├── IEEEtran.cls / .bst        # IEEE conference template styling
-│   └── figures/                   # High-resolution figures (f1_vs_share.pdf, etc.)
+│   └── figures/                   # High-resolution publication figures (f1_vs_share.pdf, etc.)
 │
 ├── submissions/                   # Verified competition predictions
 │   ├── submission_with_leakage.csv# Track B Champion Model (0.457 F1, 14,001 positives)
 │   └── submission_clean_sota.csv  # Track A Clean SOTA Model (0.447 F1, 14,876 positives)
 │
-└── tests/                         # Unit tests (11/11 passed in 0.13s)
+├── docs/                          # Internal developer documentation
+│   ├── ROADMAP.md                 # Project milestones & development history
+│   ├── TEAM_GUIDE.md              # Engineering standards & contribution guidelines
+│   └── TRAINING_COVERAGE_CONTRIBUTION.md # Baseline coverage documentation
+│
+└── tests/                         # Unit tests (11/11 passed in 0.22s)
     ├── test_preprocessing.py      # Zero-leakage pipeline assertions
     ├── test_preprocessing_contracts.py # Imputation & feature contract assertions
     └── test_training_coverage.py  # Model coverage & backward-compatibility assertions
 ```
+
+---
+
+## 6. Course Requirements Compliance
+
+| Requirement | Implementation Details | Status |
+| :--- | :--- | :---: |
+| **6 Mandatory Baselines** | All 6 methods implemented in `implementations.py` (`mean_squared_error_gd`, `mean_squared_error_sgd`, `least_squares`, `ridge_regression`, `logistic_regression`, `reg_logistic_regression`). | Passed (27/27) |
+| **Execution Script** | `run.py` provides deterministic inference (~12s) and full training from scratch (~4m) via pure NumPy checkpoints. | Verified |
+| **Dependencies** | Strict pure-NumPy and Python standard library (no pandas, no scikit-learn, no torch). | Compliant |
+| **Code Style** | Formatted with `black`, comprehensive docstrings, modular OOP design. | Compliant |
+| **Scientific Report** | 2-page IEEE conference document in `report/report.pdf` with full empirical grounding across Table I and Table II. | Complete |
