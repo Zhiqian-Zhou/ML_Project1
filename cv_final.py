@@ -1,8 +1,8 @@
-"""5-fold cross-validation of the final model (GBM + MLP, top 14% positive).
+"""5-fold cross-validation of the final GBM + MLP ensemble.
 
 Same steps as run.py inside every fold: the preprocessor, the target
 encoding and both models are fitted on the training folds only, then the
-held-out fold is scored and its top POSITIVE_RATE scores are predicted +1.
+held-out fold is scored and its configured top-rate scores are predicted +1.
 
 Usage:
     python cv_final.py [--data_path data/dataset] [--holdout] [--with_leakage]
@@ -23,7 +23,8 @@ import numpy as np
 from cross_validation import build_k_indices, fold_split
 from metrics import precision_recall_f1, predict_labels
 from preprocessing import load_data_cached, load_feature_names
-from run import HERE, LEAKY_POSITIVE_RATE, POSITIVE_RATE, ensemble_scores, model_inputs
+from run import HERE, infer
+from train import CLEAN_RATE, LEAKY_RATE, fit_ensemble
 
 
 def parse_args(argv=None):
@@ -37,13 +38,13 @@ def parse_args(argv=None):
     parser.add_argument("--top_rate", type=float, default=None)
     parser.add_argument("--gbm_weight", type=float, default=0.5)
     parser.add_argument(
-        "--scores_dir", default=None, help="Save labeled components for offline tuning"
+        "--scores_dir", default=None, help="Save held-out scores and labels"
     )
     parser.add_argument("--gbm_refit_full", action="store_true")
     parser.add_argument("--mlp_split_per_seed", action="store_true")
     args = parser.parse_args(argv)
     if args.top_rate is None:
-        args.top_rate = LEAKY_POSITIVE_RATE if args.with_leakage else POSITIVE_RATE
+        args.top_rate = LEAKY_RATE if args.with_leakage else CLEAN_RATE
     if not 0 <= args.gbm_weight <= 1 or not 0 < args.top_rate < 1:
         parser.error("Invalid blend weight or positive rate")
     if args.k_fold == 1 or args.k_fold < 0 or (args.k_fold == 0 and not args.holdout):
@@ -65,7 +66,7 @@ def holdout_split(y, frac=0.2, seed=2026):
     return np.setdiff1d(np.arange(len(y)), hold), hold
 
 
-def f1_top_rate(y, scores, top_rate=POSITIVE_RATE):
+def f1_top_rate(y, scores, top_rate=CLEAN_RATE):
     """F1 when the top top_rate scores are predicted +1."""
     y_pred = predict_labels(scores, np.quantile(scores, 1.0 - top_rate))
     return precision_recall_f1(y, y_pred)
@@ -73,37 +74,23 @@ def f1_top_rate(y, scores, top_rate=POSITIVE_RATE):
 
 def fold_scores(
     y,
-    xc,
+    x,
     names,
-    leaky,
+    with_leakage,
     tr,
     te,
     k,
-    gbm_params=None,
-    mlp_params=None,
+    n_jobs=3,
     gbm_weight=0.5,
     scores_dir=None,
     score_tag=None,
 ):
-    """Train on the rows tr (run.ensemble_scores), return the scores of the rows te."""
-    leaky_tr = leaky_te = None
-    if leaky is not None:
-        leaky_tr = tuple(block[tr] for block in leaky)
-        leaky_te = tuple(block[te] for block in leaky)
-    components = {}
-    scores = ensemble_scores(
-        y[tr],
-        xc[tr],
-        xc[te],
-        names,
-        leaky_tr,
-        leaky_te,
-        seed=k,
-        gbm_params=gbm_params,
-        mlp_params=mlp_params,
-        gbm_weight=gbm_weight,
-        components=components,
+    """Fit the same pipeline as train.py and score an isolated held-out fold."""
+    checkpoint = fit_ensemble(
+        x[tr], y[tr], names, with_leakage,
+        gbm_weight=gbm_weight, n_jobs=n_jobs,
     )
+    _, scores = infer(checkpoint, x[te], names, te)
 
     if scores_dir is not None:
         os.makedirs(scores_dir, exist_ok=True)
@@ -111,7 +98,7 @@ def fold_scores(
             os.path.join(scores_dir, (score_tag or f"fold_{k}") + ".npz"),
             row_indices=te,
             y=y[te],
-            **components,
+            scores=scores,
             gbm_weight=gbm_weight,
         )
     return scores
@@ -121,17 +108,16 @@ def main(argv=None):
     """Run the k-fold cross-validation and print the F1 of every fold."""
     args = parse_args(argv)
     t0 = time.time()
+    if args.gbm_refit_full or args.mlp_split_per_seed:
+        raise ValueError("Experimental model flags are not supported by the final fitted pipeline")
     model_options = dict(
-        gbm_params={"refit_full": args.gbm_refit_full},
-        mlp_params={"split_per_seed": args.mlp_split_per_seed, "verbose": False},
         gbm_weight=args.gbm_weight,
         scores_dir=args.scores_dir,
     )
     x, _, y, _, _ = load_data_cached(args.data_path)
     names = load_feature_names(args.data_path)
-    xc, xc_names, leaky = model_inputs(x[: args.n_rows], names, args.with_leakage)
+    x = x[: args.n_rows]
     y = y[: args.n_rows]
-    del x
     rows = np.arange(len(y))
     if args.holdout:
         rows, hold = holdout_split(y)
@@ -140,7 +126,7 @@ def main(argv=None):
         f1s = []
         for k in range(args.k_fold):
             tr, te = (rows[i] for i in fold_split(k_indices, k))
-            scores = fold_scores(y, xc, xc_names, leaky, tr, te, k, **model_options)
+            scores = fold_scores(y, x, names, args.with_leakage, tr, te, k, **model_options)
             p, r, f1 = f1_top_rate(y[te], scores, args.top_rate)
             f1s.append(f1)
             print(
@@ -154,9 +140,9 @@ def main(argv=None):
     if args.holdout:
         scores = fold_scores(
             y,
-            xc,
-            xc_names,
-            leaky,
+            x,
+            names,
+            args.with_leakage,
             rows,
             hold,
             args.k_fold,

@@ -7,14 +7,14 @@ This script executes the complete training pipeline:
     4. Trains a 3-seed Histogram Gradient Boosted Tree ensemble (NumPy).
     5. Fits the neural network preprocessor and trains a 10-seed MLP ensemble.
     6. Saves the complete fitted models and preprocessing state to weights/.
-    7. Optionally generates the exact competition submission CSV via inference.
+    7. Optionally generates a competition-format CSV via inference.
 
 Usage:
-    # 1. Train Clean SOTA (Track A, zero leakage)
-    python train.py --output weights/clean_model.npz
+    # 1. Train a corrected clean screening model
+    python train.py
 
-    # 2. Train Leaky Model (Track B, leaderboard exploration)
-    python train.py --with_leakage --output weights/leaky_model.npz
+    # 2. Train the corrected leakage-enabled model
+    python train.py --with_leakage
 """
 
 import argparse
@@ -32,6 +32,7 @@ import mlp
 from preprocessing import (
     TARGET_ENC_COLUMNS,
     clean_data,
+    fit_composite_stats,
     fit_preprocessor,
     fit_standardizer,
     leaky_features,
@@ -42,8 +43,8 @@ from preprocessing import (
 )
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CLEAN_RATE = 0.136  # optimal operating point for Clean SOTA (F1 = 0.447)
-LEAKY_RATE = 0.128  # optimal operating point for Leaky SOTA (F1 = 0.457)
+CLEAN_RATE = 0.136  # operating point recorded in the saved clean checkpoint
+LEAKY_RATE = 0.128  # operating point recorded in the saved leaky checkpoint
 MLP_CONFIG = {"interactions": False}
 
 
@@ -63,16 +64,8 @@ def parse_args(argv=None):
         args.top_rate = LEAKY_RATE if args.with_leakage else CLEAN_RATE
     if args.output is None:
         weights_dir = os.path.join(HERE, "weights")
-        name = "leaky_model.npz" if args.with_leakage else "clean_model.npz"
+        name = "leaky_model_corrected.npz" if args.with_leakage else "clean_model_corrected.npz"
         args.output = os.path.join(weights_dir, name)
-    if args.submission_output is None:
-        sub_dir = os.path.join(HERE, "submissions")
-        name = (
-            "submission_with_leakage.csv"
-            if args.with_leakage
-            else "submission_clean_sota.csv"
-        )
-        args.submission_output = os.path.join(sub_dir, name)
     return args
 
 
@@ -81,9 +74,12 @@ def log(t0, message):
     print(f"[{time.time() - t0:6.0f}s] {message}", flush=True)
 
 
-def model_inputs(x_raw, names, with_leakage=False):
+def model_inputs(x_raw, names, with_leakage=False, composite_stats=None):
     """Clean raw features and isolate post-event leaky block if requested."""
-    xc, xc_names = clean_data(x_raw, names, keep_raw=("_STATE",), with_composite=True)
+    xc, xc_names = clean_data(
+        x_raw, names, keep_raw=("_STATE",), with_composite=True,
+        composite_stats=composite_stats,
+    )
     if not with_leakage:
         return xc, xc_names, None
     x_tree, _, x_flags, _ = leaky_features(x_raw, names)
@@ -93,7 +89,7 @@ def model_inputs(x_raw, names, with_leakage=False):
 def fit_target_risk_encodings(
     y_tr, xc_tr, names, target_cols=TARGET_ENC_COLUMNS, m_smooth=50.0
 ):
-    """Compute empirical Bayes smoothed risk encoding strictly on y_tr."""
+    """Fit full-data inference tables; encode training rows out of fold."""
     y01_tr = (y_tr == 1).astype(np.float64)
     prior = float(np.mean(y01_tr))
     tables = []
@@ -107,7 +103,17 @@ def fit_target_risk_encodings(
             cnt = np.bincount(inv)
             smooth = (pos + m_smooth * prior) / (cnt + m_smooth)
             tables.append((col_name, cats, smooth, prior))
-            enc_tr_list.append(smooth[inv])
+            encoded = np.empty(len(y_tr), dtype=np.float64)
+            rng = np.random.default_rng(2026)
+            for fold in np.array_split(rng.permutation(len(y_tr)), min(5, len(y_tr))):
+                keep = np.ones(len(y_tr), dtype=bool)
+                keep[fold] = False
+                fold_prior = float(np.mean(y01_tr[keep])) if np.any(keep) else prior
+                fold_pos = np.bincount(inv[keep], weights=y01_tr[keep], minlength=len(cats))
+                fold_cnt = np.bincount(inv[keep], minlength=len(cats))
+                fold_smooth = (fold_pos + m_smooth * fold_prior) / (fold_cnt + m_smooth)
+                encoded[fold] = fold_smooth[inv[fold]]
+            enc_tr_list.append(encoded)
             enc_names.append(f"{col_name}_RISK")
     if not enc_tr_list:
         return xc_tr, names, []
@@ -140,23 +146,14 @@ def _fit_single_gbm(y_tr, tx_tr_gbm, seed):
     return gbm.train(y_tr, tx_tr_gbm, p)
 
 
-def main(argv=None):
-    """Run full model training and export checkpoint weights."""
-    args = parse_args(argv)
+def fit_ensemble(x_train, y_train, raw_names, with_leakage=False, top_rate=None,
+                 gbm_weight=0.5, n_jobs=3):
+    """Fit one ensemble with every learned statistic confined to x_train/y_train."""
     t0 = time.time()
-    print("=" * 70)
-    print(f"Starting Training: with_leakage={args.with_leakage}")
-    print(f"Output Checkpoint: {args.output}")
-    print("=" * 70)
-
-    # 1. Load raw data
-    x_train, x_test, y_train, _, test_ids = load_data_cached(args.data_path)
-    raw_names = load_feature_names(args.data_path)
-    log(t0, f"Loaded raw data: train {x_train.shape}, test {x_test.shape}")
-
-    # 2. Codebook cleaning and preparation
-    xc_tr, xc_names, leaky_tr = model_inputs(x_train, raw_names, args.with_leakage)
-    del x_train
+    composite_stats = fit_composite_stats(x_train, raw_names)
+    xc_tr, xc_names, leaky_tr = model_inputs(
+        x_train, raw_names, with_leakage, composite_stats
+    )
     log(t0, f"Cleaned features: shape {xc_tr.shape}")
 
     # 3. Fit target risk encodings
@@ -170,12 +167,12 @@ def main(argv=None):
     gbm_seeds = [42, 43, 44]
     log(
         t0,
-        f"Training GBM 3-seed ensemble (seeds {gbm_seeds}) with n_jobs={args.n_jobs}...",
+        f"Training GBM 3-seed ensemble (seeds {gbm_seeds}) with n_jobs={n_jobs}...",
     )
 
-    if args.n_jobs > 1:
+    if n_jobs > 1:
         with ProcessPoolExecutor(
-            max_workers=min(args.n_jobs, len(gbm_seeds))
+            max_workers=min(n_jobs, len(gbm_seeds))
         ) as executor:
             futures = [
                 executor.submit(_fit_single_gbm, y_train, tx_tr_gbm, s)
@@ -207,11 +204,12 @@ def main(argv=None):
     )
 
     # 6. Save model weights checkpoint
-    checkpoint = {
-        "version": "1.0",
-        "with_leakage": args.with_leakage,
-        "top_rate": args.top_rate,
-        "gbm_weight": args.gbm_weight,
+    return {
+        "version": "2.1",
+        "with_leakage": with_leakage,
+        "top_rate": top_rate if top_rate is not None else (LEAKY_RATE if with_leakage else CLEAN_RATE),
+        "gbm_weight": gbm_weight,
+        "composite_stats": composite_stats,
         "risk_tables": risk_tables,
         "names": names,
         "gbm_models": gbm_models,
@@ -219,6 +217,25 @@ def main(argv=None):
         "flags_stats": flags_stats,
         "mlp_model": mlp_model,
     }
+
+
+def main(argv=None):
+    """Run full model training and export checkpoint weights."""
+    args = parse_args(argv)
+    t0 = time.time()
+    x_train, x_test, y_train, _, test_ids = load_data_cached(args.data_path)
+    raw_names = load_feature_names(args.data_path)
+    checkpoint = fit_ensemble(
+        x_train, y_train, raw_names, args.with_leakage, args.top_rate,
+        args.gbm_weight, args.n_jobs,
+    )
+    del x_train
+    gbm_models = checkpoint["gbm_models"]
+    mlp_model = checkpoint["mlp_model"]
+    mlp_state = checkpoint["mlp_state"]
+    risk_tables = checkpoint["risk_tables"]
+    flags_stats = checkpoint["flags_stats"]
+    names = checkpoint["names"]
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     save_model(args.output, checkpoint)
     log(t0, f"Pretrained model weights successfully saved to {args.output}")
@@ -226,7 +243,9 @@ def main(argv=None):
     # 7. Generate submission file via inference
     if args.submission_output:
         log(t0, "Generating submission via test inference...")
-        xc_te, names_te, leaky_te = model_inputs(x_test, raw_names, args.with_leakage)
+        xc_te, names_te, leaky_te = model_inputs(
+            x_test, raw_names, args.with_leakage, checkpoint["composite_stats"]
+        )
         del x_test
         xc_te, names_te = apply_target_risk_encodings(xc_te, names_te, risk_tables)
         tree_te = leaky_te[0] if leaky_te is not None else None

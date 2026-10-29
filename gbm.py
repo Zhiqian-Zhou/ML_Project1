@@ -124,6 +124,22 @@ def fit_target_encoding(codes, y01, m):
     return cats, (pos + m * prior) / (cnt + m), prior
 
 
+def fit_oof_target_encoding(codes, y01, m, seed=42, n_folds=5):
+    """Encode each fitting row using only labels from other fitting rows."""
+    if len(codes) < 2:
+        raise ValueError("Out-of-fold encoding requires at least two rows")
+    rng = np.random.default_rng(seed)
+    folds = np.array_split(rng.permutation(len(codes)), min(n_folds, len(codes)))
+    result = np.empty(len(codes), dtype=np.float64)
+    for fold in folds:
+        held = np.asarray(fold, dtype=int)
+        keep = np.ones(len(codes), dtype=bool)
+        keep[held] = False
+        encoding = fit_target_encoding(codes[keep], y01[keep], m)
+        result[held] = apply_target_encoding(codes[held, None], encoding)[:, -1]
+    return result
+
+
 def apply_target_encoding(tx, encoding):
     """Replace the last column of tx (category codes) by their encoding.
 
@@ -396,8 +412,9 @@ def train(y, tx, params=None):
     """Train the boosted trees.
 
     The rows are split into an inner train / validation part (stratified,
-    `valid_frac`). The state prevalence (last column) is fitted on the inner
-    train labels only. Boosting stops when the validation loss has not
+    `valid_frac`). Inner training rows receive out-of-fold state prevalence;
+    validation rows receive a mapping fitted on the inner training labels.
+    Boosting stops when the validation loss has not
     improved for `patience` rounds and the model is cut at the best round.
 
     Args:
@@ -417,6 +434,9 @@ def train(y, tx, params=None):
     encoding = fit_target_encoding(tx[tr, -1], y01[tr], p["target_enc_last"])
     raw_tx = tx
     tx = apply_target_encoding(tx, encoding)
+    tx[tr, -1] = fit_oof_target_encoding(
+        raw_tx[tr, -1], y01[tr], p["target_enc_last"], seed=p["seed"]
+    )
     edges = fit_bins(tx[tr] if p["refit_full"] else tx, p["n_bins"])
     xb = apply_bins(tx, edges, p["n_bins"])
     f0, trees = boost(xb[tr], y01[tr], xb[va], y01[va], p)
@@ -427,6 +447,9 @@ def train(y, tx, params=None):
         # selecting the number of trees on the inner split.
         encoding = fit_target_encoding(raw_tx[:, -1], y01, p["target_enc_last"])
         tx = apply_target_encoding(raw_tx, encoding)
+        tx[:, -1] = fit_oof_target_encoding(
+            raw_tx[:, -1], y01, p["target_enc_last"], seed=p["seed"]
+        )
         edges = fit_bins(tx, p["n_bins"])
         xb = apply_bins(tx, edges, p["n_bins"])
         f0, trees = boost(xb, y01, None, None, dict(p, n_trees=selected_rounds))

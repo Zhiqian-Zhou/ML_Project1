@@ -457,7 +457,26 @@ def fill_structural(xc, x_raw, feature_names):
     return xc
 
 
-def add_derived(xc, x_raw, feature_names, with_composite=True):
+def fit_composite_stats(x_raw, feature_names, codes=None):
+    """Fit age and BMI normalization on training rows only."""
+    codes = load_special_codes() if codes is None else codes
+    selected = [n for n in ("_AGE80", "_BMI5") if n in feature_names]
+    indices = [feature_names.index(n) for n in selected]
+    cleaned = replace_special_codes(
+        np.asarray(x_raw, dtype=np.float64)[:, indices], selected, codes
+    )
+    stats = {}
+    for j, name in enumerate(selected):
+        values = cleaned[:, j]
+        finite = values[np.isfinite(values)]
+        fallback = (54.0, 17.0) if name == "_AGE80" else (28.0, 6.0)
+        mean = float(np.mean(finite)) if len(finite) else fallback[0]
+        std = float(np.std(finite)) if len(finite) else fallback[1]
+        stats[name] = (mean, std if np.isfinite(std) and std > 0 else 1.0)
+    return stats
+
+
+def add_derived(xc, x_raw, feature_names, with_composite=True, composite_stats=None):
     """Append the derived features hh_adults, diabetes_years, and 4 composite clinical indicators.
 
     hh_adults: adults in the household, landline NUMADULT else cell HHADULT.
@@ -533,8 +552,11 @@ def add_derived(xc, x_raw, feature_names, with_composite=True):
         # 2. AGE_VASCULAR_SYNERGY
         if "_AGE80" in ix:
             age = xc[:, ix["_AGE80"]].copy()
-            age_mean = float(np.nanmean(age)) if np.any(~np.isnan(age)) else 54.0
-            age_std = float(np.nanstd(age)) if np.any(~np.isnan(age)) else 17.0
+            if composite_stats is not None and "_AGE80" in composite_stats:
+                age_mean, age_std = composite_stats["_AGE80"]
+            else:  # archived checkpoints used batch statistics
+                age_mean = float(np.nanmean(age))
+                age_std = float(np.nanstd(age))
             if age_std == 0.0 or np.isnan(age_std):
                 age_std = 1.0
             age_norm = (age - age_mean) / age_std
@@ -545,8 +567,11 @@ def add_derived(xc, x_raw, feature_names, with_composite=True):
         # 3. METABOLIC_INDEX
         if "_BMI5" in ix and "GENHLTH" in ix:
             bmi = xc[:, ix["_BMI5"]].copy()
-            bmi_mean = float(np.nanmean(bmi)) if np.any(~np.isnan(bmi)) else 28.0
-            bmi_std = float(np.nanstd(bmi)) if np.any(~np.isnan(bmi)) else 6.0
+            if composite_stats is not None and "_BMI5" in composite_stats:
+                bmi_mean, bmi_std = composite_stats["_BMI5"]
+            else:  # archived checkpoints used batch statistics
+                bmi_mean = float(np.nanmean(bmi))
+                bmi_std = float(np.nanstd(bmi))
             if bmi_std == 0.0 or np.isnan(bmi_std):
                 bmi_std = 1.0
             bmi_norm = (bmi - bmi_mean) / bmi_std
@@ -576,6 +601,7 @@ def clean_data(
     codes=None,
     keep_raw=(),
     with_composite=True,
+    composite_stats=None,
 ):
     """Stateless cleaning of raw data (train and test can be cleaned apart).
 
@@ -608,7 +634,10 @@ def clean_data(
     x_sub = np.asarray(x_raw, dtype=np.float64)[:, sub_idx]
     xc = replace_special_codes(x_sub, sub_names, codes)
     xc = fill_structural(xc, x_sub, sub_names)
-    xc, all_names = add_derived(xc, x_sub, sub_names, with_composite=with_composite)
+    xc, all_names = add_derived(
+        xc, x_sub, sub_names, with_composite=with_composite,
+        composite_stats=composite_stats,
+    )
     ix = {name: j for j, name in enumerate(all_names)}
 
     selected_names = [n for n in out_names if n in ix]

@@ -5,23 +5,24 @@ Course Rule Compliance:
     (loading pretrained weights and generating predictions), but then please
     also explain where to find the code for training these weights."
 
-By default, this script executes fast, deterministic inference in ~15 seconds:
+By default, this script executes deterministic inference in about 20 seconds:
     1. Loads the BRFSS test dataset without loading or processing training data.
     2. Loads pure-NumPy model weights (GBM 3 seeds + MLP 10 seeds + fitted preprocessors)
        from weights/ using model_io (allow_pickle=False).
     3. Runs feature transformations, tree inference, and neural network forward passes.
     4. Blends logits and selects top-percentile candidates (calibrated in cross-validation).
-    5. Outputs the exact competition submission CSV.
+    5. Outputs a competition-format CSV. The default uses the leakage-enabled
+       checkpoint, whose current output differs from the archived submission.
 
-To retrain weights from scratch (~4-5 mins with multi-core parallelization):
+To retrain weights from scratch (about 10 minutes for the measured full leaky fit):
     Run `python train.py` (or pass `python run.py --train`).
 
 Usage:
-    # 1. Reproduce Track A Clean SOTA (Official Submission, zero leakage, ~15s)
+    # 1. Run the leakage-enabled checkpoint (~20s)
     python run.py
 
-    # 2. Reproduce Track B Leaky Leaderboard (Exploration, ~15s)
-    python run.py --with_leakage
+    # 2. Reproduce the saved clean screening CSV (~20s)
+    python run.py --clean
 
     # 3. Retrain from scratch
     python run.py --train
@@ -58,15 +59,18 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data_path", default=os.path.join(HERE, "data", "dataset"))
     parser.add_argument("--output", default=None)
-    parser.add_argument(
-        "--with_leakage",
-        action="store_true",
-        help="Generate Track B leaky model predictions (submission_with_leakage.csv)",
+    variant = parser.add_mutually_exclusive_group()
+    variant.add_argument(
+        "--with_leakage", action="store_true",
+        help="Use the leakage-enabled model (the default)",
+    )
+    variant.add_argument(
+        "--clean", action="store_true", help="Use the clean screening model",
     )
     parser.add_argument(
         "--weights",
         default=None,
-        help="Path to pretrained model checkpoint (.npz). Defaults to weights/clean_model.npz or weights/leaky_model.npz",
+        help="Path to pretrained model checkpoint (.npz). Defaults to the archived checkpoint for the selected variant",
     )
     parser.add_argument(
         "--train",
@@ -96,6 +100,7 @@ def parse_args(argv=None):
         help="Experimental: vary the inner validation split across networks",
     )
     args = parser.parse_args(argv)
+    args.with_leakage = not args.clean
 
     args.variant_tag = ""
     if args.gbm_refit_full:
@@ -106,20 +111,11 @@ def parse_args(argv=None):
         args.variant_tag += f"_gbmw{args.gbm_weight:g}"
 
     if args.weights is None:
-        args.weights = (
-            DEFAULT_WEIGHTS_LEAKY if args.with_leakage else DEFAULT_WEIGHTS_CLEAN
-        )
+        archived = DEFAULT_WEIGHTS_LEAKY if args.with_leakage else DEFAULT_WEIGHTS_CLEAN
+        args.weights = archived.replace(".npz", "_corrected.npz") if args.train else archived
 
     if args.output is None:
-        sub_dir = os.path.join(HERE, "submissions")
-        name = (
-            "submission_with_leakage.csv"
-            if args.with_leakage
-            else "submission_clean_sota.csv"
-        )
-        args.output = os.path.join(
-            sub_dir, name.replace(".csv", args.variant_tag + ".csv")
-        )
+        args.output = os.path.join(HERE, "submission" + args.variant_tag + ".csv")
 
     return args
 
@@ -129,9 +125,12 @@ def log(t0, message):
     print(f"[{time.time() - t0:6.0f}s] {message}", flush=True)
 
 
-def model_inputs(x_raw, names, with_leakage=False):
+def model_inputs(x_raw, names, with_leakage=False, composite_stats=None):
     """Clean raw test features and extract leaky block if requested."""
-    xc, xc_names = clean_data(x_raw, names, keep_raw=("_STATE",), with_composite=True)
+    xc, xc_names = clean_data(
+        x_raw, names, keep_raw=("_STATE",), with_composite=True,
+        composite_stats=composite_stats,
+    )
     if not with_leakage:
         return xc, xc_names, None
     x_tree, _, x_flags, _ = leaky_features(x_raw, names)
@@ -171,7 +170,9 @@ def infer(checkpoint, x_test_raw, raw_names, test_ids, top_rate_override=None):
     log(t0, f"Running inference: with_leakage={with_leakage}, top_rate={top_rate:.2%}")
 
     # 1. Clean test features
-    xc_te, names_te, leaky_te = model_inputs(x_test_raw, raw_names, with_leakage)
+    xc_te, names_te, leaky_te = model_inputs(
+        x_test_raw, raw_names, with_leakage, checkpoint.get("composite_stats")
+    )
     xc_te, names_te = apply_target_risk_encodings(xc_te, names_te, risk_tables)
     tree_te = leaky_te[0] if leaky_te is not None else None
     flags_te = leaky_te[1] if leaky_te is not None else None
