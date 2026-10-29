@@ -7,7 +7,7 @@ By default, executes fast, deterministic inference in ~12 seconds:
     4. Applies calibrated percentile cutoff and outputs the competition submission CSV.
 
 To retrain from scratch (~4-5 mins with multi-core parallelization):
-    Run `python run.py --train` (or `python train.py`).
+    Run `python run.py --train`.
 
 Usage:
     # 1. Reproduce Track B Leaky Leaderboard (Champion Model, 0.457 F1, ~12s)

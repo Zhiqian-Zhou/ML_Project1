@@ -98,17 +98,14 @@ python run.py --with_leakage
 ```
 
 ### Retraining Models from Scratch
-The complete training code that generated our pretrained weights is provided in `train.py`. With 3-process parallelization across seeds, training finishes in ~4–5 minutes:
+The complete training pipeline is integrated directly into `run.py`. With 3-process parallelization across seeds, training finishes in ~4–5 minutes:
 
 ```bash
-# 1. Train Clean SOTA ensemble from scratch and export weights
-python train.py --output weights/clean_model.npz
-
-# 2. Train Leaky ensemble from scratch and export weights
-python train.py --with_leakage --output weights/leaky_model.npz
-
-# Alternatively, pass --train to run.py:
+# 1. Retrain Champion Model (Track B) from scratch and export weights
 python run.py --train
+
+# 2. Retrain Clean SOTA Model (Track A) from scratch and export weights
+python run.py --train --clean
 ```
 
 ### Running Validation & Tests
@@ -128,8 +125,7 @@ pytest tests/
 ML_Project1/
 ├── README.md                      # Executive overview, pipeline description & quickstart
 ├── implementations.py             # 6 course required baseline methods (GD, SGD, LS, Ridge, Logistic, Reg-Logistic)
-├── run.py                         # Fast reproducible inference generator using pretrained weights (~12s)
-├── train.py                       # Complete training harness from scratch with weight export (~4m)
+├── run.py                         # Unified execution script for reproducible inference (~12s) and training (~4m)
 ├── models.py                      # Unified OOP estimators (GradientBoostedTrees, MLPEnsemble, CardiacEnsemble)
 ├── cross_validation.py            # Stratified K-fold CV and 80/20 holdout evaluation harness
 ├── preprocessing.py               # OOP feature cleaning (BRFSSCleaner, TargetRiskEncoder, TabularPreprocessor)
