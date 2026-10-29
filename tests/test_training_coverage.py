@@ -94,11 +94,12 @@ def test_network_split_diversity_and_reproducibility():
         np.testing.assert_array_equal(a, b)
 
 
-def test_experimental_cli_does_not_overwrite_champion_output():
-    """Experimental default output names differ from the production filename."""
-    with patch.object(sys, "argv", ["run.py", "--with_leakage"]):
+def test_cli_mode_selection():
+    """Verify clean mode and default champion mode CLI selection."""
+    with patch.object(sys, "argv", ["run.py"]):
         baseline = run.parse_args()
-    with patch.object(sys, "argv", ["run.py", "--with_leakage", "--gbm_refit_full"]):
-        experimental = run.parse_args()
-    assert baseline.output != experimental.output
-    assert experimental.variant_tag == "_gbm_refit"
+    with patch.object(sys, "argv", ["run.py", "--clean"]):
+        clean = run.parse_args()
+    assert baseline.output != clean.output
+    assert baseline.with_leakage and not clean.with_leakage
+    assert baseline.weights != clean.weights
