@@ -1,0 +1,324 @@
+name,source,kind,positive_values,notes
+_STATE,,drop,,53 states; one-hot was noise in CV
+FMONTH,,drop,,"survey administration / screener, no health content"
+IDATE,,drop,,"survey administration / screener, no health content"
+IMONTH,,drop,,"survey administration / screener, no health content"
+IDAY,,drop,,"survey administration / screener, no health content"
+IYEAR,,drop,,"survey administration / screener, no health content"
+DISPCODE,,drop,,"survey administration / screener, no health content"
+SEQNO,,drop,,identifier
+_PSU,,drop,,identifier
+CTELENUM,,drop,,"constant/near-empty; survey administration / screener, no health content"
+PVTRESD1,,drop,,"survey administration / screener, no health content"
+COLGHOUS,,drop,,"constant/near-empty; survey administration / screener, no health content"
+STATERES,,drop,,"constant/near-empty; survey administration / screener, no health content"
+CELLFON3,,drop,,"survey administration / screener, no health content"
+LADULT,,drop,,"survey administration / screener, no health content"
+NUMADULT,,drop,,source of hh_adults
+NUMMEN,,drop,,landline-only; weak once landline indicator present
+NUMWOMEN,,drop,,landline-only; weak once landline indicator present
+CTELNUM1,,drop,,"constant/near-empty; survey administration / screener, no health content"
+CELLFON2,,drop,,"constant/near-empty; survey administration / screener, no health content"
+CADULT,,drop,,cell screener; = SEX
+PVTRESD2,,drop,,"survey administration / screener, no health content"
+CCLGHOUS,,drop,,"constant/near-empty; survey administration / screener, no health content"
+CSTATE,,drop,,"survey administration / screener, no health content"
+LANDLINE,,drop,,cell-only; info = landline indicator
+HHADULT,,drop,,source of hh_adults
+GENHLTH,,ordinal,,top predictor; 7/9->NaN (impute median)
+PHYSHLTH,,continuous,,bounded 0-30 days
+MENTHLTH,,continuous,,bounded 0-30 days
+POORHLTH,,continuous,,bounded 0-30 days
+HLTHPLN1,,binary,1,
+PERSDOC2,,onehot,,
+MEDCOST,,binary,1,
+CHECKUP1,,onehot,,positive rate not monotone
+BPHIGH4,,onehot,,1 yes/2 pregnancy-only/3 no/4 borderline; 7/9->NaN; (or binary yes=1)
+BPMEDS,,binary,1,structural: NaN iff BPHIGH4!=1 -> fill 0; strong (MI 37e-3)
+BLOODCHO,,binary,1,ever cholesterol checked
+CHOLCHK,,ordinal,,NaN iff BLOODCHO!=1 -> set 5 (never); 7/9->NaN (after cleaning NaN 0.15: pos 0.032 vs 0.098)
+TOLDHI2,,binary,1,NaN == BLOODCHO!=1
+CVDSTRK3,,binary,1,"1->1, 2->0, 7/9->NaN"
+ASTHMA3,,drop,,= _ASTHMS1
+ASTHNOW,,drop,,= _ASTHMS1
+CHCSCNCR,,binary,1,"1->1, 2->0, 7/9->NaN"
+CHCOCNCR,,binary,1,"1->1, 2->0, 7/9->NaN"
+CHCCOPD1,,binary,1,"1->1, 2->0, 7/9->NaN"
+HAVARTH3,,binary,1,
+ADDEPEV2,,binary,1,"1->1, 2->0, 7/9->NaN"
+CHCKIDNY,,binary,1,"1->1, 2->0, 7/9->NaN"
+DIABETE3,,onehot,,1 yes/2 pregnancy/3 no/4 prediabetes
+DIABAGE2,,drop,,source of diabetes_years
+SEX,,binary,1,male=1 female=0
+MARITAL,,onehot,,9->NaN
+EDUCA,,ordinal,,9->NaN
+RENTHOM1,,onehot,,weak but cheap (3 levels)
+NUMHHOL2,,drop,,landline-only phone admin
+NUMPHON2,,drop,,"phone-screening question (number of phone lines), survey administration"
+CPDEMO1,,drop,,landline-only phone admin
+VETERAN3,,binary,1,"1->1, 2->0, 7/9->NaN"
+EMPLOY1,,onehot,,strong: 7 retired (0.21) / 8 unable to work (0.20)
+CHILDREN,,continuous_log,,heavy-tailed count: log1p
+INCOME2,,ordinal,,77/99 = 17% of rows -> NaN + flag
+INTERNET,,binary,1,"1->1, 2->0, 7/9->NaN"
+WEIGHT2,,drop,,use WTKG3 (identical after unit conversion: lbs or 9xxx=kg)
+HEIGHT3,,drop,,use HTIN4 (identical after ft/in or 9xxx=cm conversion)
+PREGNANT,,drop,,only women 18-44; missingness = sex/age
+QLACTLM2,,binary,1,"1->1, 2->0, 7/9->NaN"
+USEEQUIP,,binary,1,"1->1, 2->0, 7/9->NaN"
+BLIND,,binary,1,"1->1, 2->0, 7/9->NaN"
+DECIDE,,binary,1,"1->1, 2->0, 7/9->NaN"
+DIFFWALK,,binary,1,"1->1, 2->0, 7/9->NaN"
+DIFFDRES,,binary,1,"1->1, 2->0, 7/9->NaN"
+DIFFALON,,binary,1,"1->1, 2->0, 7/9->NaN"
+SMOKE100,,drop,,exactly encoded by _SMOKER3
+SMOKDAY2,,drop,,= _SMOKER3 (structural NaN iff SMOKE100!=1)
+STOPSMK2,,drop,,"current smokers only, weak"
+LASTSMK2,,drop,,former smokers only; weak (MI 7.9e-3 mostly from missingness = smoker status)
+USENOW3,,binary,1|2,every day or some days vs not at all
+ALCDAY5,,drop,,"= DROCDY3_ (1xx/wk,2xx/30d,888=0)"
+AVEDRNK2,,continuous_log,,heavy-tailed count: log1p
+DRNK3GE5,,continuous_log,,heavy-tailed count: log1p
+MAXDRNKS,,continuous_log,,heavy-tailed count: log1p
+FRUITJU1,,drop,,= FTJUDA1_ (1xx/2xx/3xx + 555)
+FRUIT1,,drop,,= FRUTDA1_
+FVBEANS,,drop,,= BEANDAY_
+FVGREEN,,drop,,= GRENDAY_
+FVORANG,,drop,,= ORNGDAY_
+VEGETAB1,,drop,,= VEGEDA1_
+EXERANY2,,binary,1,=_TOTINDA
+EXRACT11,,drop,,76-level activity type; summarised by PA1MIN_/_PACAT1
+EXEROFT1,,drop,,= PAFREQ1_ (summarised in PA1MIN_)
+EXERHMM1,,drop,,= PADUR1_
+EXRACT21,,drop,,activity type
+EXEROFT2,,drop,,= PAFREQ2_
+EXERHMM2,,drop,,= PADUR2_
+STRENGTH,,drop,,= STRFREQ_
+LMTJOIN3,,drop,,= _LMTACT1
+ARTHDIS2,,drop,,= _LMTWRK1
+ARTHSOCL,,drop,,= _LMTSCL1
+JOINPAIN,,continuous,,0-10 pain scale
+SEATBELT,,ordinal,,8 (never ride) -> NaN; weak
+FLUSHOT6,,binary,1,
+FLSHTMY2,,drop,,date
+IMFVPLAC,,drop,,flu-shot place; info mostly = FLUSHOT6
+PNEUVAC3,,binary,1,"7 (DK)=7.7% of rows, pos 0.038 -> keep DK as own flag"
+HIVTST6,,binary,1,
+HIVTSTD3,,drop,,date
+WHRTST10,,drop,,"optional module with >80% NaN, weak/redundant"
+PDIABTST,,drop,,prediabetes module 19% coverage; weak
+PREDIAB1,,drop,,weak
+INSULIN,,binary,1,"diabetes module (diabetics, subset of states); NaN = not diabetic/not asked"
+BLDSUGAR,,drop,,"diabetes module: 93% NaN, answered only by diabetics -> info already in DIABETE3"
+FEETCHK2,,drop,,"diabetes module: 93% NaN, answered only by diabetics -> info already in DIABETE3"
+DOCTDIAB,,drop,,"diabetes module: 93% NaN, answered only by diabetics -> info already in DIABETE3"
+CHKHEMO3,,drop,,"diabetes module: 93% NaN, answered only by diabetics -> info already in DIABETE3"
+FEETCHK,,drop,,"diabetes module: 93% NaN, answered only by diabetics -> info already in DIABETE3"
+EYEEXAM,,drop,,"diabetes module: 93% NaN, answered only by diabetics -> info already in DIABETE3"
+DIABEYE,,drop,,"diabetes module: 93% NaN, answered only by diabetics -> info already in DIABETE3"
+DIABEDU,,drop,,"diabetes module: 93% NaN, answered only by diabetics -> info already in DIABETE3"
+CAREGIV1,,drop,,module; weak (MI 0.27e-3)
+CRGVREL1,,drop,,"optional module with >80% NaN, weak/redundant"
+CRGVLNG1,,drop,,"optional module with >80% NaN, weak/redundant"
+CRGVHRS1,,drop,,"optional module with >80% NaN, weak/redundant"
+CRGVPRB1,,drop,,"optional module with >80% NaN, weak/redundant"
+CRGVPERS,,drop,,"optional module with >80% NaN, weak/redundant"
+CRGVHOUS,,drop,,"optional module with >80% NaN, weak/redundant"
+CRGVMST2,,drop,,"optional module with >80% NaN, weak/redundant"
+CRGVEXPT,,drop,,"optional module with >80% NaN, weak/redundant"
+VIDFCLT2,,drop,,"optional module with >80% NaN, weak/redundant"
+VIREDIF3,,drop,,"optional module with >80% NaN, weak/redundant"
+VIPRFVS2,,drop,,"optional module with >80% NaN, weak/redundant"
+VINOCRE2,,drop,,"optional module with >80% NaN, weak/redundant"
+VIEYEXM2,,drop,,"optional module with >80% NaN, weak/redundant"
+VIINSUR2,,drop,,"optional module with >80% NaN, weak/redundant"
+VICTRCT4,,drop,,"optional module with >80% NaN, weak/redundant"
+VIGLUMA2,,drop,,"optional module with >80% NaN, weak/redundant"
+VIMACDG2,,drop,,"optional module with >80% NaN, weak/redundant"
+CIMEMLOS,,binary,1,"cognitive module (age 45+, some states); 74% NaN"
+CDHOUSE,,drop,,"optional module with >80% NaN, weak/redundant"
+CDASSIST,,drop,,"optional module with >80% NaN, weak/redundant"
+CDHELP,,drop,,"optional module with >80% NaN, weak/redundant"
+CDSOCIAL,,drop,,"optional module with >80% NaN, weak/redundant"
+CDDISCUS,,drop,,"optional module with >80% NaN, weak/redundant"
+WTCHSALT,,binary,1,sodium module (9% coverage)
+LONGWTCH,,drop,,"optional module with >80% NaN, weak/redundant"
+DRADVISE,,binary,1,NaN == WTCHSALT NaN
+ASTHMAGE,,drop,,"optional module with >80% NaN, weak/redundant"
+ASATTACK,,drop,,"optional module with >80% NaN, weak/redundant"
+ASERVIST,,drop,,"optional module with >80% NaN, weak/redundant"
+ASDRVIST,,drop,,"optional module with >80% NaN, weak/redundant"
+ASRCHKUP,,drop,,"optional module with >80% NaN, weak/redundant"
+ASACTLIM,,drop,,"optional module with >80% NaN, weak/redundant"
+ASYMPTOM,,drop,,"optional module with >80% NaN, weak/redundant"
+ASNOSLEP,,drop,,"optional module with >80% NaN, weak/redundant"
+ASTHMED3,,drop,,"optional module with >80% NaN, weak/redundant"
+ASINHALR,,drop,,"optional module with >80% NaN, weak/redundant"
+HAREHAB1,,drop,,leaky: answered only after a heart attack (notebook section 7)
+STREHAB1,,drop,,not leakage (stroke comorbidity) but >99% NaN; its gate CVDSTRK3 is kept
+CVDASPRN,,drop,,leaky: answered only after a heart attack (notebook section 7)
+ASPUNSAF,,drop,,leaky: answered only after a heart attack (notebook section 7)
+RLIVPAIN,,drop,,leaky: answered only after a heart attack (notebook section 7)
+RDUCHART,,drop,,leaky: answered only after a heart attack (notebook section 7)
+RDUCSTRK,,drop,,leaky: answered only after a heart attack (notebook section 7)
+ARTTODAY,,drop,,"optional module with >80% NaN, weak/redundant"
+ARTHWGT,,drop,,"optional module with >80% NaN, weak/redundant"
+ARTHEXER,,drop,,"optional module with >80% NaN, weak/redundant"
+ARTHEDU,,drop,,"optional module with >80% NaN, weak/redundant"
+TETANUS,,drop,,"optional module with >80% NaN, weak/redundant"
+HPVADVC2,,drop,,"optional module with >80% NaN, weak/redundant"
+HPVADSHT,,drop,,"optional module with >80% NaN, weak/redundant"
+SHINGLE2,,drop,,module 6% coverage
+HADMAM,,drop,,"optional module with >80% NaN, weak/redundant"
+HOWLONG,,drop,,"optional module with >80% NaN, weak/redundant"
+HADPAP2,,drop,,"optional module with >80% NaN, weak/redundant"
+LASTPAP2,,drop,,"optional module with >80% NaN, weak/redundant"
+HPVTEST,,drop,,"optional module with >80% NaN, weak/redundant"
+HPLSTTST,,drop,,"optional module with >80% NaN, weak/redundant"
+HADHYST2,,drop,,"optional module with >80% NaN, weak/redundant"
+PROFEXAM,,drop,,"optional module with >80% NaN, weak/redundant"
+LENGEXAM,,drop,,"optional module with >80% NaN, weak/redundant"
+BLDSTOOL,,drop,,"module 12% coverage, weak"
+LSTBLDS3,,drop,,"optional module with >80% NaN, weak/redundant"
+HADSIGM3,,drop,,"module 12% coverage, weak"
+HADSGCO1,,drop,,"optional module with >80% NaN, weak/redundant"
+LASTSIG3,,drop,,"optional module with >80% NaN, weak/redundant"
+PCPSAAD2,,drop,,"optional module with >80% NaN, weak/redundant"
+PCPSADI1,,drop,,"optional module with >80% NaN, weak/redundant"
+PCPSARE1,,drop,,"optional module with >80% NaN, weak/redundant"
+PSATEST1,,drop,,"optional module with >80% NaN, weak/redundant"
+PSATIME,,drop,,"optional module with >80% NaN, weak/redundant"
+PCPSARS1,,drop,,"optional module with >80% NaN, weak/redundant"
+PCPSADE1,,drop,,"optional module with >80% NaN, weak/redundant"
+PCDMDECN,,drop,,"optional module with >80% NaN, weak/redundant"
+SCNTMNY1,,drop,,"optional module with >80% NaN, weak/redundant"
+SCNTMEL1,,drop,,"optional module with >80% NaN, weak/redundant"
+SCNTPAID,,drop,,"optional module with >80% NaN, weak/redundant"
+SCNTWRK1,,drop,,"optional module with >80% NaN, weak/redundant"
+SCNTLPAD,,drop,,"optional module with >80% NaN, weak/redundant"
+SCNTLWK1,,drop,,"optional module with >80% NaN, weak/redundant"
+SXORIENT,,drop,,"optional module with >80% NaN, weak/redundant"
+TRNSGNDR,,drop,,"optional module with >80% NaN, weak/redundant"
+RCSGENDR,,drop,,"optional module with >80% NaN, weak/redundant"
+RCSRLTN2,,drop,,"optional module with >80% NaN, weak/redundant"
+CASTHDX2,,drop,,"optional module with >80% NaN, weak/redundant"
+CASTHNO2,,drop,,"optional module with >80% NaN, weak/redundant"
+EMTSUPRT,,drop,,"optional module with >80% NaN, weak/redundant"
+LSATISFY,,drop,,"optional module with >80% NaN, weak/redundant"
+ADPLEASR,,drop,,"optional module with >80% NaN, weak/redundant"
+ADDOWN,,drop,,"optional module with >80% NaN, weak/redundant"
+ADSLEEP,,drop,,"optional module with >80% NaN, weak/redundant"
+ADENERGY,,drop,,"optional module with >80% NaN, weak/redundant"
+ADEAT1,,drop,,"optional module with >80% NaN, weak/redundant"
+ADFAIL,,drop,,"optional module with >80% NaN, weak/redundant"
+ADTHINK,,drop,,"optional module with >80% NaN, weak/redundant"
+ADMOVE,,drop,,"optional module with >80% NaN, weak/redundant"
+MISTMNT,,drop,,"optional module with >80% NaN, weak/redundant"
+ADANXEV,,drop,,"optional module with >80% NaN, weak/redundant"
+QSTVER,,drop,,landline/cell split explained by age
+QSTLANG,,drop,,"survey administration / screener, no health content"
+MSCODE,,drop,,NaN == cell sample; phone block dropped
+_STSTR,,drop,,"survey administration / screener, no health content"
+_STRWT,,drop,,survey weight
+_RAWRAKE,,drop,,survey weight
+_WT2RAKE,,drop,,survey weight
+_CHISPNC,,drop,,"optional module with >80% NaN, weak/redundant"
+_CRACE1,,drop,,"optional module with >80% NaN, weak/redundant"
+_CPRACE,,drop,,"optional module with >80% NaN, weak/redundant"
+_CLLCPWT,,drop,,survey weight
+_DUALUSE,,drop,,"survey administration / screener, no health content"
+_DUALCOR,,drop,,survey weight
+_LLCPWT,,drop,,survey weight
+_RFHLTH,,drop,,= GENHLTH dichotomized
+_HCVU651,,drop,,= HLTHPLN1 restricted to <65 (9 code = 36% incl. all 65+)
+_RFHYPE5,,drop,,= BPHIGH4
+_CHOLCHK,,drop,,= BLOODCHO/CHOLCHK
+_RFCHOL,,drop,,= TOLDHI2
+_LTASTH1,,drop,,= ASTHMA3
+_CASTHM1,,drop,,= ASTHNOW
+_ASTHMS1,,onehot,,"current/former/never asthma, no NaN (replaces ASTHMA3/ASTHNOW)"
+_DRDXAR1,,drop,,= HAVARTH3
+_PRACE1,,drop,,redundant race recode of _RACE
+_MRACE1,,drop,,redundant race recode of _RACE
+_HISPANC,,drop,,redundant race recode of _RACE
+_RACE,,onehot,,race/ethnicity 8 cats; 9->NaN
+_RACEG21,,drop,,redundant race recode of _RACE
+_RACEGR3,,drop,,redundant race recode of _RACE
+_RACE_G1,,drop,,redundant race recode of _RACE
+_AGEG5YR,,drop,,redundant with _AGE80 (r=0.996); 14->NaN
+_AGE65YR,,drop,,= _AGE80>=65
+_AGE80,,continuous,,top predictor (pos 0.5% at 18-24 -> 22% at 80)
+_AGE_G,,drop,,= _AGE80 binned
+HTIN4,,continuous,,NaN inside _BMI5 NaN
+HTM4,,drop,,same as HTIN4
+WTKG3,,continuous,,NaN inside _BMI5 NaN
+_BMI5,,continuous,,already /100 in this file; NaN 8% (pos 0.061)
+_BMI5CAT,,drop,,= _BMI5 binned
+_RFBMI5,,drop,,= _BMI5>25
+_CHLDCNT,,drop,,= CHILDREN
+_EDUCAG,,drop,,= EDUCA
+_INCOMG,,drop,,= INCOME2
+_SMOKER3,,onehot,,positive rate not monotone
+_RFSMOK3,,drop,,= _SMOKER3
+DRNKANY5,,drop,,derived from ALCDAY5; captured by DROCDY3_
+DROCDY3_,,continuous_log,,heavy-tailed count: log1p
+_RFBING5,,drop,,_RFBING5==2 iff DRNK3GE5>=1
+_DRNKWEK,,continuous_log,,heavy-tailed count: log1p
+_RFDRHV5,,binary,2,calculated 1=no 2=yes: positive 2
+FTJUDA1_,,continuous_log,,heavy-tailed count: log1p
+FRUTDA1_,,continuous_log,,heavy-tailed count: log1p
+BEANDAY_,,continuous_log,,heavy-tailed count: log1p
+GRENDAY_,,continuous_log,,heavy-tailed count: log1p
+ORNGDAY_,,continuous_log,,heavy-tailed count: log1p
+VEGEDA1_,,continuous_log,,heavy-tailed count: log1p
+_MISFRTN,,drop,,diet QC/flag or dichotomised copy
+_MISVEGN,,drop,,diet QC/flag or dichotomised copy
+_FRTRESP,,drop,,diet QC/flag or dichotomised copy
+_VEGRESP,,drop,,diet QC/flag or dichotomised copy
+_FRUTSUM,,drop,,exact sum FTJUDA1_+FRUTDA1_
+_VEGESUM,,drop,,exact sum of the 4 vegetable columns
+_FRTLT1,,drop,,diet QC/flag or dichotomised copy
+_VEGLT1,,drop,,diet QC/flag or dichotomised copy
+_FRT16,,drop,,diet QC/flag or dichotomised copy
+_VEG23,,drop,,diet QC/flag or dichotomised copy
+_FRUITEX,,drop,,diet QC/flag or dichotomised copy
+_VEGETEX,,drop,,diet QC/flag or dichotomised copy
+_TOTINDA,,drop,,= EXERANY2
+METVL11_,,drop,,per-activity intermediate; summarised by PA1MIN_/PA1VIGM_
+METVL21_,,drop,,per-activity intermediate; summarised by PA1MIN_/PA1VIGM_
+MAXVO2_,,drop,,deterministic function of age & sex (r=-0.97 with _AGE80)
+FC60_,,drop,,= MAXVO2_/5.83
+ACTIN11_,,drop,,per-activity intermediate; summarised by PA1MIN_/PA1VIGM_
+ACTIN21_,,drop,,per-activity intermediate; summarised by PA1MIN_/PA1VIGM_
+PADUR1_,,drop,,per-activity intermediate; summarised by PA1MIN_/PA1VIGM_
+PADUR2_,,drop,,per-activity intermediate; summarised by PA1MIN_/PA1VIGM_
+PAFREQ1_,,drop,,per-activity intermediate; summarised by PA1MIN_/PA1VIGM_
+PAFREQ2_,,drop,,per-activity intermediate; summarised by PA1MIN_/PA1VIGM_
+_MINAC11,,drop,,per-activity intermediate; summarised by PA1MIN_/PA1VIGM_
+_MINAC21,,drop,,per-activity intermediate; summarised by PA1MIN_/PA1VIGM_
+STRFREQ_,,continuous_log,,heavy-tailed count: log1p
+PAMISS1_,,drop,,per-activity intermediate; summarised by PA1MIN_/PA1VIGM_
+PAMIN11_,,drop,,per-activity intermediate; summarised by PA1MIN_/PA1VIGM_
+PAMIN21_,,drop,,per-activity intermediate; summarised by PA1MIN_/PA1VIGM_
+PA1MIN_,,continuous_log,,heavy-tailed count: log1p
+PAVIG11_,,drop,,per-activity intermediate; summarised by PA1MIN_/PA1VIGM_
+PAVIG21_,,drop,,per-activity intermediate; summarised by PA1MIN_/PA1VIGM_
+PA1VIGM_,,continuous_log,,heavy-tailed count: log1p
+_PACAT1,,onehot,,positive rate U-shaped
+_PAINDX1,,drop,,redundant PA recode of _PACAT1/_PASTRNG
+_PA150R2,,drop,,redundant PA recode of _PACAT1/_PASTRNG
+_PA300R2,,drop,,redundant PA recode of _PACAT1/_PASTRNG
+_PA30021,,drop,,redundant PA recode of _PACAT1/_PASTRNG
+_PASTRNG,,binary,1,1 = meets strength guideline
+_PAREC1,,drop,,redundant PA recode of _PACAT1/_PASTRNG
+_PASTAE1,,drop,,redundant PA recode of _PACAT1/_PASTRNG
+_LMTACT1,,binary,1,level 3 == HAVARTH3=2: limited flag
+_LMTWRK1,,binary,1,level 3 == HAVARTH3=2: limited flag
+_LMTSCL1,,ordinal,,positive rate monotone in level
+_RFSEAT2,,drop,,= SEATBELT
+_RFSEAT3,,drop,,= SEATBELT
+_FLSHOT6,,drop,,= FLUSHOT6 for 65+
+_PNEUMO2,,drop,,= PNEUVAC3 for 65+
+_AIDTST3,,drop,,= HIVTST6
+hh_adults,derive:coalesce(NUMADULT;HHADULT),continuous_log,,adults in household: landline NUMADULT else cell HHADULT
+diabetes_years,derive:diabetes_years(_AGE80;DIABAGE2;DIABETE3),continuous,,max(_AGE80-DIABAGE2;0) if diabetic; 0 if DIABETE3 in 2|3|4

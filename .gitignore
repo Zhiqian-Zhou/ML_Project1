@@ -1,0 +1,40 @@
+# Data (too large, not allowed in the repo)
+data/*
+!data/README.md
+*.zip
+*.npy
+*.npz
+!weights/*.npz
+
+# Generated submissions (track official deliverables, ignore temporary runs)
+submissions/*.csv
+!submissions/submission_clean_sota.csv
+!submissions/submission_with_leakage.csv
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+
+# Grading tests clone
+github_workdir/
+
+# LaTeX build files
+report/*.aux
+report/*.bbl
+report/*.blg
+report/*.log
+report/*.out
+report/*.synctex.gz
+report/*.fdb_latexmk
+report/*.fls
+
+# Scratch & temporary
+scratch/
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
+.pytest_cache/
