@@ -47,6 +47,12 @@ COMPOSITE_COLUMNS = (
     "HEALTH_DAYS_BURDEN",
 )
 
+# Standard decision cutoff rates
+CLEAN_RATE = 0.136  # optimal cutoff for Track A Clean SOTA (F1 = 0.447)
+LEAKY_RATE = 0.128  # optimal cutoff for Track B Leaky Leaderboard (F1 = 0.457)
+POSITIVE_RATE = CLEAN_RATE
+LEAKY_POSITIVE_RATE = LEAKY_RATE
+
 
 def _first_indices(names):
     """Index first occurrences, preserving list.index behavior for duplicates."""
@@ -207,11 +213,7 @@ def extract_structured_skip_features(x_raw, feature_names):
     ix = {n: j for j, n in enumerate(feature_names)}
     extra_cols = []
     extra_names = []
-    no_diab = (
-        np.isin(x_raw[:, ix["DIABETE3"]], [2, 3, 4])
-        if "DIABETE3" in ix
-        else None
-    )
+    no_diab = np.isin(x_raw[:, ix["DIABETE3"]], [2, 3, 4]) if "DIABETE3" in ix else None
     no_ci = x_raw[:, ix["CIMEMLOS"]] == 2 if "CIMEMLOS" in ix else None
 
     # 1. DIABEYE (diabetic retinopathy) & DOCTDIAB (annual doctor visits)
@@ -692,6 +694,15 @@ def leaky_features(x_raw, feature_names, codes=None):
     return x_tree, tree_names, x_flags, flag_names
 
 
+def model_inputs(x_raw, names, with_leakage=False):
+    """Clean raw features and isolate post-event leaky block if requested."""
+    xc, xc_names = clean_data(x_raw, names, keep_raw=("_STATE",), with_composite=True)
+    if not with_leakage:
+        return xc, xc_names, None
+    x_tree, _, x_flags, _ = leaky_features(x_raw, names)
+    return xc, xc_names, (x_tree, x_flags)
+
+
 TARGET_ENC_COLUMNS = [
     "GENHLTH",
     "CVDSTRK3",
@@ -702,38 +713,58 @@ TARGET_ENC_COLUMNS = [
 ]
 
 
-def add_target_risk_encodings(
-    y_tr, xc_tr, xc_te, names, target_cols=TARGET_ENC_COLUMNS, m_smooth=50.0
+def fit_target_risk_encodings(
+    y_tr, xc_tr, names, target_cols=TARGET_ENC_COLUMNS, m_smooth=50.0
 ):
-    """Compute empirical Bayes smoothed risk encoding on key categorical variables.
-
-    Fitted strictly on y_tr labels to guarantee zero data leakage.
-    Smooth prevalence = (pos + m * prior) / (cnt + m).
-    """
+    """Compute empirical Bayes smoothed risk encoding strictly on y_tr."""
     y01_tr = (y_tr == 1).astype(np.float64)
     prior = float(np.mean(y01_tr))
-    enc_tr_list, enc_te_list, enc_names = [], [], []
-    indices = _first_indices(names)
+    tables = []
+    enc_tr_list, enc_names = [], []
     for col_name in target_cols:
-        if col_name in indices:
-            idx = indices[col_name]
+        if col_name in names:
+            idx = names.index(col_name)
             col_tr = xc_tr[:, idx]
-            col_te = xc_te[:, idx]
             cats, inv = np.unique(col_tr, return_inverse=True)
             pos = np.bincount(inv, weights=y01_tr)
             cnt = np.bincount(inv)
             smooth = (pos + m_smooth * prior) / (cnt + m_smooth)
-            pos_idx = np.clip(np.searchsorted(cats, col_te), 0, len(cats) - 1)
-            enc_te = np.where(cats[pos_idx] == col_te, smooth[pos_idx], prior)
+            tables.append((col_name, cats, smooth, prior))
             enc_tr_list.append(smooth[inv])
-            enc_te_list.append(enc_te)
             enc_names.append(f"{col_name}_RISK")
     if not enc_tr_list:
-        return xc_tr, xc_te, names
-    # Insert new continuous risk features directly before _STATE
+        return xc_tr, names, []
     new_tr = np.hstack([xc_tr[:, :-1], np.column_stack(enc_tr_list), xc_tr[:, -1:]])
+    new_names = names[:-1] + enc_names + [names[-1]]
+    return new_tr, new_names, tables
+
+
+def apply_target_risk_encodings(xc_te, names, tables):
+    """Apply fitted empirical Bayes risk mappings to test data."""
+    enc_te_list, enc_names = [], []
+    for col_name, cats, smooth, prior in tables:
+        if col_name in names:
+            idx = names.index(col_name)
+            col_te = xc_te[:, idx]
+            pos_idx = np.clip(np.searchsorted(cats, col_te), 0, len(cats) - 1)
+            enc_te = np.where(cats[pos_idx] == col_te, smooth[pos_idx], prior)
+            enc_te_list.append(enc_te)
+            enc_names.append(f"{col_name}_RISK")
+    if not enc_te_list:
+        return xc_te, names
     new_te = np.hstack([xc_te[:, :-1], np.column_stack(enc_te_list), xc_te[:, -1:]])
     new_names = names[:-1] + enc_names + [names[-1]]
+    return new_te, new_names
+
+
+def add_target_risk_encodings(
+    y_tr, xc_tr, xc_te, names, target_cols=TARGET_ENC_COLUMNS, m_smooth=50.0
+):
+    """Compute empirical Bayes smoothed risk encoding on key categorical variables."""
+    new_tr, new_names, tables = fit_target_risk_encodings(
+        y_tr, xc_tr, names, target_cols=target_cols, m_smooth=m_smooth
+    )
+    new_te, _ = apply_target_risk_encodings(xc_te, names, tables)
     return new_tr, new_te, new_names
 
 

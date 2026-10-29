@@ -40,10 +40,14 @@ from metrics import predict_labels
 from model_io import load_model
 import mlp
 from preprocessing import (
-    clean_data,
-    leaky_features,
+    CLEAN_RATE,
+    LEAKY_RATE,
+    LEAKY_POSITIVE_RATE,
+    POSITIVE_RATE,
+    apply_target_risk_encodings,
     load_data_cached,
     load_feature_names,
+    model_inputs,
     standardize,
     transform,
 )
@@ -59,14 +63,20 @@ def parse_args(argv=None):
     parser.add_argument("--data_path", default=os.path.join(HERE, "data", "dataset"))
     parser.add_argument("--output", default=None)
     parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Generate Track A clean screening model predictions (0.447 F1)",
+    )
+    parser.add_argument(
         "--with_leakage",
         action="store_true",
-        help="Generate Track B leaky model predictions (submission_with_leakage.csv)",
+        default=None,
+        help="Generate Track B leaky model predictions (0.457 F1, default)",
     )
     parser.add_argument(
         "--weights",
         default=None,
-        help="Path to pretrained model checkpoint (.npz). Defaults to weights/clean_model.npz or weights/leaky_model.npz",
+        help="Path to pretrained model checkpoint (.npz). Defaults to weights/leaky_model.npz or weights/clean_model.npz",
     )
     parser.add_argument(
         "--train",
@@ -96,6 +106,12 @@ def parse_args(argv=None):
         help="Experimental: vary the inner validation split across networks",
     )
     args = parser.parse_args(argv)
+
+    # By default, infer the best performance model (leaky, 0.457 F1)
+    if args.clean:
+        args.with_leakage = False
+    else:
+        args.with_leakage = True
 
     args.variant_tag = ""
     if args.gbm_refit_full:
@@ -127,33 +143,6 @@ def parse_args(argv=None):
 def log(t0, message):
     """Print timestamped progress message."""
     print(f"[{time.time() - t0:6.0f}s] {message}", flush=True)
-
-
-def model_inputs(x_raw, names, with_leakage=False):
-    """Clean raw test features and extract leaky block if requested."""
-    xc, xc_names = clean_data(x_raw, names, keep_raw=("_STATE",), with_composite=True)
-    if not with_leakage:
-        return xc, xc_names, None
-    x_tree, _, x_flags, _ = leaky_features(x_raw, names)
-    return xc, xc_names, (x_tree, x_flags)
-
-
-def apply_target_risk_encodings(xc_te, names, tables):
-    """Apply empirical Bayes risk mappings from the pretrained checkpoint."""
-    enc_te_list, enc_names = [], []
-    for col_name, cats, smooth, prior in tables:
-        if col_name in names:
-            idx = names.index(col_name)
-            col_te = xc_te[:, idx]
-            pos_idx = np.clip(np.searchsorted(cats, col_te), 0, len(cats) - 1)
-            enc_te = np.where(cats[pos_idx] == col_te, smooth[pos_idx], prior)
-            enc_te_list.append(enc_te)
-            enc_names.append(f"{col_name}_RISK")
-    if not enc_te_list:
-        return xc_te, names
-    new_te = np.hstack([xc_te[:, :-1], np.column_stack(enc_te_list), xc_te[:, -1:]])
-    new_names = names[:-1] + enc_names + [names[-1]]
-    return new_te, new_names
 
 
 def infer(checkpoint, x_test_raw, raw_names, test_ids, top_rate_override=None):

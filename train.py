@@ -30,20 +30,23 @@ from metrics import predict_labels
 from model_io import save_model
 import mlp
 from preprocessing import (
+    CLEAN_RATE,
+    LEAKY_RATE,
     TARGET_ENC_COLUMNS,
+    apply_target_risk_encodings,
     clean_data,
     fit_preprocessor,
     fit_standardizer,
+    fit_target_risk_encodings,
     leaky_features,
     load_data_cached,
     load_feature_names,
+    model_inputs,
     standardize,
     transform,
 )
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CLEAN_RATE = 0.136  # optimal operating point for Clean SOTA (F1 = 0.447)
-LEAKY_RATE = 0.128  # optimal operating point for Leaky SOTA (F1 = 0.457)
 MLP_CONFIG = {"interactions": False}
 
 
@@ -79,59 +82,6 @@ def parse_args(argv=None):
 def log(t0, message):
     """Print timestamped progress message."""
     print(f"[{time.time() - t0:6.0f}s] {message}", flush=True)
-
-
-def model_inputs(x_raw, names, with_leakage=False):
-    """Clean raw features and isolate post-event leaky block if requested."""
-    xc, xc_names = clean_data(x_raw, names, keep_raw=("_STATE",), with_composite=True)
-    if not with_leakage:
-        return xc, xc_names, None
-    x_tree, _, x_flags, _ = leaky_features(x_raw, names)
-    return xc, xc_names, (x_tree, x_flags)
-
-
-def fit_target_risk_encodings(
-    y_tr, xc_tr, names, target_cols=TARGET_ENC_COLUMNS, m_smooth=50.0
-):
-    """Compute empirical Bayes smoothed risk encoding strictly on y_tr."""
-    y01_tr = (y_tr == 1).astype(np.float64)
-    prior = float(np.mean(y01_tr))
-    tables = []
-    enc_tr_list, enc_names = [], []
-    for col_name in target_cols:
-        if col_name in names:
-            idx = names.index(col_name)
-            col_tr = xc_tr[:, idx]
-            cats, inv = np.unique(col_tr, return_inverse=True)
-            pos = np.bincount(inv, weights=y01_tr)
-            cnt = np.bincount(inv)
-            smooth = (pos + m_smooth * prior) / (cnt + m_smooth)
-            tables.append((col_name, cats, smooth, prior))
-            enc_tr_list.append(smooth[inv])
-            enc_names.append(f"{col_name}_RISK")
-    if not enc_tr_list:
-        return xc_tr, names, []
-    new_tr = np.hstack([xc_tr[:, :-1], np.column_stack(enc_tr_list), xc_tr[:, -1:]])
-    new_names = names[:-1] + enc_names + [names[-1]]
-    return new_tr, new_names, tables
-
-
-def apply_target_risk_encodings(xc_te, names, tables):
-    """Apply fitted empirical Bayes risk mappings to test data."""
-    enc_te_list, enc_names = [], []
-    for col_name, cats, smooth, prior in tables:
-        if col_name in names:
-            idx = names.index(col_name)
-            col_te = xc_te[:, idx]
-            pos_idx = np.clip(np.searchsorted(cats, col_te), 0, len(cats) - 1)
-            enc_te = np.where(cats[pos_idx] == col_te, smooth[pos_idx], prior)
-            enc_te_list.append(enc_te)
-            enc_names.append(f"{col_name}_RISK")
-    if not enc_te_list:
-        return xc_te, names
-    new_te = np.hstack([xc_te[:, :-1], np.column_stack(enc_te_list), xc_te[:, -1:]])
-    new_names = names[:-1] + enc_names + [names[-1]]
-    return new_te, new_names
 
 
 def _fit_single_gbm(y_tr, tx_tr_gbm, seed):
