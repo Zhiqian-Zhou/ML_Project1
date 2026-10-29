@@ -36,7 +36,7 @@ Coronary heart disease is a leading global cause of death, motivating low-cost s
 
 \textbf{Skip patterns and non-response.} Over 45\% of questions are $>50\%$ missing due to survey skip logic rather than random omissions. For example, blood pressure medication (\texttt{BPMEDS}) is asked only of hypertensive respondents (16.3\% prevalence vs.\ 3.8\% when skipped). We apply eleven domain rules to infer implied negatives (e.g., no hypertension implies no medication). Because respondents answering ``don't know'' exhibit higher disease rates, we extract 61 binary uncertainty masks as predictive risk features.
 
-\textbf{Feature selection and pipeline.} We remove 6 constant columns, administrative IDs, columns $>95\%$ missing, and 44 collinear pairs ($|r|>0.9$), retaining 75 raw features, 2 engineered metrics, and 61 uncertainty masks (138 total). Heavily skewed continuous variables are compressed via $\log(1+x)$. We then perform median/mode imputation, standardization, one-hot encoding, and add 10 clinical interaction terms. To prevent data leakage, all preprocessing statistics are estimated strictly inside training folds.
+\textbf{Feature selection and pipeline.} We remove 6 constant columns, administrative IDs, columns $>95\%$ missing, and 44 collinear pairs ($|r|>0.9$), retaining 75 raw features, 2 engineered metrics, and 61 uncertainty masks (138 total). Together with domain skip features, CDC indicators, and smoothed risk encodings, the final design matrix spans 158 features. Heavily skewed continuous variables are compressed via $\log(1+x)$. We then perform median/mode imputation, standardization, one-hot encoding, and add 10 clinical interaction terms. Preprocessing statistics are estimated strictly inside training folds.
 
 \section{Models and validation}
 \label{sec:models}
@@ -48,7 +48,7 @@ Coronary heart disease is a leading global cause of death, motivating low-cost s
 
 \textbf{Neural network.} An MLP with 64 ReLU hidden units is implemented in NumPy to provide smooth continuous decision boundaries. Trained with Adam \cite{kingma2015adam} (learning rate $10^{-3}$, batch size 512, weight decay $10^{-3}$), logits are averaged across 10 random seeds to reduce variance.
 
-\textbf{Ensemble and decision rule.} We blend the tree ensemble and neural network by averaging raw output scores ($0.5\,s_{\text{GBM}}+0.5\,s_{\text{MLP}}$). Rather than a fixed 0.5 probability cutoff, we classify the top 14\% highest-risk individuals as positive. This percentile rule is invariant to calibration drift across folds; as shown in Fig.~\ref{fig:share}, F1 remains stable across positive rates of 12--16\%.
+\textbf{Ensemble and decision rule.} We blend the tree ensemble and neural network by averaging raw output scores ($0.5\,s_{\text{GBM}}+0.5\,s_{\text{MLP}}$). Rather than a fixed 0.5 cutoff, we tune percentile thresholds inside the CV plateau (12--16\%, Fig.~\ref{fig:share}); final submissions use 13.6\% (clean) and 12.8\% (leaky). This percentile rule is invariant to calibration drift across folds.
 
 \begin{figure}[tbp]
   \centering
@@ -103,7 +103,7 @@ Table~\ref{tab:results} benchmarks all models on standardized development folds:
 \label{sec:leakage}
 Seven survey questions directly reference post-event care or secondary prevention: cardiac and stroke rehabilitation (\texttt{HAREHAB1}, \texttt{STREHAB1}), daily aspirin usage, and rationales (\texttt{CVDASPRN}, \texttt{RDUCHART}, \texttt{RDUCSTRK}, \texttt{RLIVPAIN}, \texttt{ASPUNSAF}). Notably, all 615 development respondents reporting cardiac rehabilitation (\texttt{HAREHAB1}) had positive heart diagnoses (and 158/158 on held-out data), representing severe target leakage \cite{kaufman2012leakage}.
 
-As shown in Table~\ref{tab:leak}, incorporating these seven features boosts classification F1 by $\approx 0.010$ across all models, elevating AIcrowd test F1 to 0.457 (88.3\% accuracy). However, this reflects reverse causality: undiagnosed individuals in pre-event screening are never prescribed cardiac rehabilitation, meaning these responses do not exist before diagnosis. We strictly exclude these leaky questions from our official model to preserve screening validity, while documenting the leaky model as a competition benchmark (\texttt{run.py --with\_leakage}).
+As shown in Table~\ref{tab:leak}, incorporating these seven features boosts classification F1 by $\approx 0.010$ across all models, elevating AIcrowd test F1 to 0.457 (88.3\% accuracy). However, this reflects reverse causality: undiagnosed individuals in pre-event screening are never prescribed cardiac rehabilitation, meaning these responses do not exist before diagnosis. We strictly exclude these leaky questions from our official model to preserve screening validity, while documenting the leaky model as the default competition benchmark (\texttt{run.py}) and the clean model via \texttt{run.py --clean}.
 
 \begin{table}[tbp]
   \centering
@@ -116,8 +116,8 @@ As shown in Table~\ref{tab:leak}, incorporating these seven features boosts clas
     \toprule
     Variant & CV F1 & Held-out & AIcrowd & Acc. \\
     \midrule
-    Clean (Top 14\%) & $0.4368 \pm 0.0026$ & 0.4340 & 0.447 & 87.7\% \\
-    Leaky (Top 13\%) & $0.4464 \pm 0.0032$ & 0.4445 & 0.457 & 88.3\% \\
+    Clean (Top 13.6\%) & $0.4368 \pm 0.0026$ & 0.4340 & 0.447 & 87.7\% \\
+    Leaky (Top 12.8\%) & $0.4464 \pm 0.0032$ & 0.4445 & 0.457 & 88.3\% \\
     \midrule
     Gain ($\Delta$) & $+0.0096$ & $+0.0105$ & $+0.0100$ & $+0.6\%$ \\
     \bottomrule

@@ -1,3 +1,3 @@
 version,cv_f1_mean,cv_f1_std,holdout_f1,holdout_precision,holdout_recall,predicted_positive_rate,aicrowd_f1,aicrowd_accuracy,source
-official (no leaky columns),0.4368,0.0026,0.4340,0.354,0.561,0.14,0.448,,"final/cv_holdout_clean.log; final/run_clean.log; AIcrowd F1: README.md and loop2/ITERATIONS2.md (Iteration 2)"
-with leakage (supplementary),0.4464,0.0032,0.4445,0.373,0.549,0.13,0.455,0.882,"final/cv_holdout_leaky.log; final/run_leaky.log; AIcrowd: lead's submission record"
+official (no leaky columns),0.4368,0.0026,0.4340,0.354,0.561,0.136,0.447,0.877,"AIcrowd Submission #338250; F1=0.447, Acc=0.877 (14,876 positives)"
+with leakage (supplementary),0.4464,0.0032,0.4445,0.373,0.549,0.128,0.457,0.883,"AIcrowd Submission #338245 (TooGreedy); F1=0.457, Acc=0.883 (14,001 positives)"

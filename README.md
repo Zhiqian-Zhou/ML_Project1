@@ -29,11 +29,12 @@ The objective of this project is binary classification on the CDC Behavioral Ris
 * **`BRFSSCleaner`:**
   * **Sentinel Value Mapping:** Survey sentinels like `7`, `9`, `77`, `99` (don't know / refused) are mapped to `NaN`. Codes `88` (none / zero days) and `888` (no alcohol) are mapped to `0`. Imperial and metric measurements are standardized to centimeters and kilograms.
   * **Skip-Logic Imputation:** Over 45% of questions are $>50\%$ missing due to branching survey logic rather than random non-response. Eleven domain rules infer implied negatives (e.g., non-hypertensive respondents are never prescribed blood pressure medication `BPMEDS`).
-  * **Informative Missingness & Feature Selection:** 61 binary uncertainty masks (`_dk`) are extracted as predictive risk features. We drop 6 constant columns, administrative IDs, columns $>95\%$ missing, and 44 collinear pairs ($|r|>0.9$), retaining 75 raw features, 2 engineered metrics, and 61 masks (138 total).
+  * **Informative Missingness & Feature Selection:** 61 binary uncertainty masks (`_dk`) are extracted as predictive risk features. We drop 6 constant columns, administrative IDs, columns $>95\%$ missing, and 44 collinear pairs ($|r|>0.9$), retaining 75 raw features, 2 engineered metrics, and 61 masks (138 base features).
+  * **Final Feature Matrix:** Together with 9 CDC high-AUC features, 6 domain skip indicators, 4 composite clinical terms, and 6 empirical Bayes target encodings, the delivered design matrix spans **158 features** in total.
 * **`TargetRiskEncoder`:**
   * Performs smoothed empirical Bayes target encoding for high-cardinality state codes (`_STATE`), eliminating categorical sparsity without high-dimensional one-hot inflation.
 * **`TabularPreprocessor`:**
-  * Orchestrates the complete pipeline, fits medians and standardizers strictly within training folds, and computes 10 non-linear pairwise clinical interaction terms with zero data leakage.
+  * Orchestrates the complete pipeline, fits medians and standardizers strictly within training folds, and computes non-linear pairwise clinical interaction terms with zero data leakage.
 
 ### Core Baseline Methods (`implementations.py`)
 All 6 course-mandated optimization methods are implemented from scratch in pure NumPy:
@@ -55,7 +56,7 @@ All 6 course-mandated optimization methods are implemented from scratch in pure 
 * **`StratifiedKFold`:** Preserves the exact 8.83% positive prevalence in every fold.
 * **`HoldoutSplitter`:** Stratified 80/20 train/held-out split (262,508 development rows vs. 65,627 held-out validation rows, random seed 2026).
 * **`EnsembleCrossValidator` & `LinearBaselineValidator`:** Full evaluation harnesses for cross-validation and held-out validation.
-* **Calibrated Percentile Thresholding:** Rather than an arbitrary 0.5 probability cutoff, models classify the top-scored fraction of individuals as positive (Top 14% for clean screening, Top 13% for leaky competition model). Invariant to score shift across folds, achieving maximum positive-class $F_1$.
+* **Calibrated Percentile Thresholding:** Rather than an arbitrary 0.5 probability cutoff, models classify the top-scored fraction of individuals as positive inside the stable 12%--16% CV plateau: **Top 13.6%** for clean screening (14,876 positives, F1 = 0.447) and **Top 12.8%** for the leaky competition model (14,001 positives, F1 = 0.457).
 
 ---
 
@@ -79,8 +80,8 @@ All 6 course-mandated optimization methods are implemented from scratch in pure 
 
 | Variant | Strategy | 5-Fold CV F1 | Held-Out F1 | AIcrowd F1 | AIcrowd Acc. |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **Track A: Clean Screening** | Excludes 7 post-event questions (Top 14%) | $0.4368 \pm 0.0026$ | 0.4340 | **0.447** | **87.7%** |
-| **Track B: Leaky Benchmark** | Exploits post-event questions (Top 13%) | $0.4464 \pm 0.0032$ | 0.4445 | **0.457** | **88.3%** |
+| **Track A: Clean Screening** | Excludes 7 post-event questions (Top 13.6%) | $0.4368 \pm 0.0026$ | 0.4340 | **0.447** | **87.7%** |
+| **Track B: Leaky Benchmark** | Exploits post-event questions (Top 12.8%) | $0.4464 \pm 0.0032$ | 0.4445 | **0.457** | **88.3%** |
 | **Performance Gain ($\Delta$)** | Target leakage inflation | $+0.0096$ | $+0.0105$ | $\mathbf{+0.0100}$ | $\mathbf{+0.6\%}$ |
 
 > **Clinical Target Leakage Analysis:** Seven survey questions reference care *after* an event: cardiac and stroke rehabilitation (`HAREHAB1`, `STREHAB1`), daily aspirin usage, and rationales (`CVDASPRN`, `RDUCHART`, `RDUCSTRK`, `RLIVPAIN`, `ASPUNSAF`). Notably, 100% of respondents reporting cardiac rehab had heart disease (615/615 on dev, 158/158 on held-out, 773/773 total). Because undiagnosed patients in pre-event screening are never prescribed cardiac rehab, these questions are reverse-causal. We strictly exclude them from our official clinical screening tool (Track A, F1 = 0.447), while documenting the leaky model as the competition benchmark (Track B, F1 = 0.457).
@@ -128,8 +129,8 @@ python run.py
 python run.py --clean
 ```
 
-### Retraining Models from Scratch (~4m)
-The complete training pipeline is integrated directly into `run.py`. Utilizing process-pool parallelization across CPU cores, training completes in ~4 minutes:
+### Retraining Models from Scratch
+The complete training pipeline is integrated directly into `run.py`. Models can be retrained from scratch using `python run.py --train` (Track B champion) or `python run.py --train --clean` (Track A clean).
 
 ```bash
 # 1. Retrain Track B Champion Model from scratch and export weights
@@ -138,6 +139,9 @@ python run.py --train
 # 2. Retrain Track A Clean Screening Model from scratch and export weights
 python run.py --train --clean
 ```
+
+> **Note on Training Runtime:** Training execution time depends on CPU thread concurrency and hardware resources (typically between ~10 to 30 minutes on standard local workstations). Committed precomputed weights in `weights/` are provided for instant, deterministic inference (~12s).  
+> **Note on Floating-Point Reproducibility:** Retraining from scratch across different machines or architectures may produce minute numerical jitter (~0.2% label differences out of 109,379 rows, i.e., ~238 rows) due to CPU floating-point accumulation order in multi-seed gradient updates and quantile bin boundaries. Loading the pre-saved checkpoints in `weights/` guarantees exact 100% bit-level reproducibility of the AIcrowd competition submissions.
 
 ### Running Cross-Validation & Evaluation
 ```bash
@@ -234,11 +238,6 @@ ML_Project1/
 │   ├── submission_with_leakage.csv# Track B Champion Model (0.457 F1, 14,001 positives)
 │   └── submission_clean_sota.csv  # Track A Clean SOTA Model (0.447 F1, 14,876 positives)
 │
-├── docs/                          # Internal developer documentation
-│   ├── ROADMAP.md                 # Project milestones & development history
-│   ├── TEAM_GUIDE.md              # Engineering standards & contribution guidelines
-│   └── TRAINING_COVERAGE_CONTRIBUTION.md # Baseline coverage documentation
-│
 └── tests/                         # Unit tests (11/11 passed in 0.22s)
     ├── test_preprocessing.py      # Zero-leakage pipeline assertions
     ├── test_preprocessing_contracts.py # Imputation & feature contract assertions
@@ -252,7 +251,7 @@ ML_Project1/
 | Requirement | Implementation Details | Status |
 | :--- | :--- | :---: |
 | **6 Mandatory Baselines** | All 6 methods implemented in `implementations.py` (`mean_squared_error_gd`, `mean_squared_error_sgd`, `least_squares`, `ridge_regression`, `logistic_regression`, `reg_logistic_regression`). | Passed (27/27) |
-| **Execution Script** | `run.py` provides deterministic inference (~12s) and full training from scratch (~4m) via pure NumPy checkpoints. | Verified |
+| **Execution Script** | `run.py` provides deterministic inference (~12s) and full training from scratch via pure NumPy checkpoints. | Verified |
 | **Dependencies** | Strict pure-NumPy and Python standard library (no pandas, no scikit-learn, no torch). | Compliant |
 | **Code Style** | Formatted with `black`, comprehensive docstrings, modular OOP design. | Compliant |
 | **Scientific Report** | 2-page IEEE conference document in `report/report.pdf` with full empirical grounding across Table I and Table II. | Complete |
