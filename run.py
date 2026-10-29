@@ -5,23 +5,21 @@ Course Rule Compliance:
     (loading pretrained weights and generating predictions), but then please
     also explain where to find the code for training these weights."
 
-By default, this script executes fast, deterministic inference in ~15 seconds:
-    1. Loads the BRFSS test dataset without loading or processing training data.
-    2. Loads pure-NumPy model weights (GBM 3 seeds + MLP 10 seeds + fitted preprocessors)
-       from weights/ using model_io (allow_pickle=False).
-    3. Runs feature transformations, tree inference, and neural network forward passes.
-    4. Blends logits and selects top-percentile candidates (calibrated in cross-validation).
-    5. Outputs the exact competition submission CSV.
+By default, executes fast, deterministic inference in ~12 seconds:
+    1. Loads the BRFSS test dataset without loading training data.
+    2. Loads pure-NumPy weights (CardiacEnsemble) from weights/ (allow_pickle=False).
+    3. Runs codebook cleaning, risk encoding, GBDT + MLP inference, and clinical prior adjustment.
+    4. Applies calibrated percentile cutoff and outputs the competition submission CSV.
 
-To retrain weights from scratch (~4-5 mins with multi-core parallelization):
+To retrain from scratch (~4-5 mins with multi-core parallelization):
     Run `python train.py` (or pass `python run.py --train`).
 
 Usage:
-    # 1. Reproduce Track A Clean SOTA (Official Submission, zero leakage, ~15s)
+    # 1. Reproduce Track B Leaky Leaderboard (Champion Model, 0.457 F1, ~12s)
     python run.py
 
-    # 2. Reproduce Track B Leaky Leaderboard (Exploration, ~15s)
-    python run.py --with_leakage
+    # 2. Reproduce Track A Clean Screening Model (0.447 F1, ~12s)
+    python run.py --clean
 
     # 3. Retrain from scratch
     python run.py --train
@@ -34,22 +32,13 @@ import time
 
 import numpy as np
 
-import gbm
 from helpers import create_csv_submission
-from metrics import predict_labels
-from model_io import load_model
-import mlp
+from models import CardiacEnsemble
 from preprocessing import (
     CLEAN_RATE,
     LEAKY_RATE,
-    LEAKY_POSITIVE_RATE,
-    POSITIVE_RATE,
-    apply_target_risk_encodings,
     load_data_cached,
     load_feature_names,
-    model_inputs,
-    standardize,
-    transform,
 )
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -58,7 +47,7 @@ DEFAULT_WEIGHTS_LEAKY = os.path.join(HERE, "weights", "leaky_model.npz")
 
 
 def parse_args(argv=None):
-    """Parse command line arguments."""
+    """Parse CLI arguments for inference and reproducibility."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data_path", default=os.path.join(HERE, "data", "dataset"))
     parser.add_argument("--output", default=None)
@@ -76,7 +65,7 @@ def parse_args(argv=None):
     parser.add_argument(
         "--weights",
         default=None,
-        help="Path to pretrained model checkpoint (.npz). Defaults to weights/leaky_model.npz or weights/clean_model.npz",
+        help="Path to pretrained model checkpoint (.npz)",
     )
     parser.add_argument(
         "--train",
@@ -107,7 +96,7 @@ def parse_args(argv=None):
     )
     args = parser.parse_args(argv)
 
-    # By default, infer the best performance model (leaky, 0.457 F1)
+    # By default, infer the champion model (leaky, 0.457 F1)
     if args.clean:
         args.with_leakage = False
     else:
@@ -140,68 +129,32 @@ def parse_args(argv=None):
     return args
 
 
-def log(t0, message):
-    """Print timestamped progress message."""
-    print(f"[{time.time() - t0:6.0f}s] {message}", flush=True)
+def infer(model, x_test_raw, raw_names, top_rate_override=None):
+    """Run model inference using loaded CardiacEnsemble instance."""
+    if isinstance(model, dict):
+        # Support legacy dictionary checkpoint by wrapping it in CardiacEnsemble
+        inst = CardiacEnsemble(
+            with_leakage=model["with_leakage"],
+            top_rate=model["top_rate"],
+            gbm_weight=model["gbm_weight"],
+        )
+        from models import GradientBoostedTrees, MLPEnsemble
 
+        inst.risk_tables = model["risk_tables"]
+        inst.names = model["names"]
+        inst.gbm_models = [
+            GradientBoostedTrees.from_dict(m) for m in model["gbm_models"]
+        ]
+        inst.mlp_state = model["mlp_state"]
+        inst.flags_stats = model["flags_stats"]
+        inst.mlp_model = MLPEnsemble.from_dict(model["mlp_model"])
+        model = inst
+    scores = model.predict_scores(x_test_raw, raw_names)
+    rate = top_rate_override or model.top_rate
+    from metrics import predict_labels
 
-def infer(checkpoint, x_test_raw, raw_names, test_ids, top_rate_override=None):
-    """Run model inference on raw test inputs using loaded model weights."""
-    t0 = time.time()
-    with_leakage = checkpoint["with_leakage"]
-    top_rate = top_rate_override or checkpoint["top_rate"]
-    gbm_weight = checkpoint["gbm_weight"]
-    risk_tables = checkpoint["risk_tables"]
-    gbm_models = checkpoint["gbm_models"]
-    mlp_state = checkpoint["mlp_state"]
-    flags_stats = checkpoint["flags_stats"]
-    mlp_model = checkpoint["mlp_model"]
-
-    log(t0, f"Running inference: with_leakage={with_leakage}, top_rate={top_rate:.2%}")
-
-    # 1. Clean test features
-    xc_te, names_te, leaky_te = model_inputs(x_test_raw, raw_names, with_leakage)
-    xc_te, names_te = apply_target_risk_encodings(xc_te, names_te, risk_tables)
-    tree_te = leaky_te[0] if leaky_te is not None else None
-    flags_te = leaky_te[1] if leaky_te is not None else None
-
-    # 2. Score with 3-seed GBM ensemble
-    t_gbm = time.time()
-    tx_te_gbm = gbm.tree_features(xc_te, names_te, tree_te)
-    s_gbm = np.mean([gbm.score(m, tx_te_gbm) for m in gbm_models], axis=0)
-    log(
-        t0,
-        f"GBM scored {len(tx_te_gbm)} test rows ({len(gbm_models)} seeds) in {time.time() - t_gbm:.1f}s",
-    )
-
-    # 3. Score with 10-seed MLP ensemble
-    t_mlp = time.time()
-    tx_te = transform(xc_te[:, :-1], mlp_state)
-    if flags_stats is not None:
-        mean, std = flags_stats
-        tx_te = np.hstack([tx_te, standardize(flags_te, mean, std)])
-    s_mlp = mlp.score(mlp_model, tx_te)
-    log(
-        t0,
-        f"MLP scored {len(tx_te)} test rows ({len(mlp_model['nets'])} seeds) in {time.time() - t_mlp:.1f}s",
-    )
-
-    # 4. Ensemble blending
-    scores = gbm_weight * s_gbm + (1.0 - gbm_weight) * s_mlp
-    if tree_te is not None:
-        # Boost respondents who attended cardiac rehab (informative post-event signal)
-        harehab_answered = ~np.isnan(tree_te[:, 0])
-        scores[harehab_answered] += 10.0
-
-    # 5. Threshold selection
-    threshold = np.quantile(scores, 1.0 - top_rate)
+    threshold = np.quantile(scores, 1.0 - rate)
     y_pred = predict_labels(scores, threshold)
-    pos_cnt = int(np.sum(y_pred == 1))
-    log(
-        t0,
-        f"Inference complete: {pos_cnt} positive predictions ({pos_cnt / len(y_pred):.2%})",
-    )
-
     return y_pred, scores
 
 
@@ -210,7 +163,6 @@ def main(argv=None):
     args = parse_args(argv)
     t0 = time.time()
 
-    # If --train is passed or weights do not exist, delegate to train.py
     if args.train or not os.path.exists(args.weights):
         if not args.train:
             print(
@@ -228,32 +180,31 @@ def main(argv=None):
 
     print("=" * 70)
     print(f"Loading Pretrained Weights: {args.weights}")
-    print(f"Generating Submission   : {args.output}")
+    print(f"Target Submission File   : {args.output}")
     print("=" * 70)
 
-    # 1. Load weights
-    checkpoint = load_model(args.weights)
-    log(t0, f"Loaded weights checkpoint (v{checkpoint.get('version', '1.0')})")
+    # 1. Load OOP model ensemble
+    ensemble = CardiacEnsemble.load(args.weights)
+    print(
+        f"[{time.time() - t0:5.1f}s] Loaded CardiacEnsemble (with_leakage={ensemble.with_leakage}, top_rate={ensemble.top_rate:.2%})"
+    )
 
-    # 2. Load test data
+    # 2. Load test features
     _, x_test, _, _, test_ids = load_data_cached(args.data_path)
     raw_names = load_feature_names(args.data_path)
-    log(t0, f"Loaded test data: {x_test.shape}")
+    print(f"[{time.time() - t0:5.1f}s] Loaded test matrix: {x_test.shape}")
 
     # 3. Perform inference
-    y_pred, _ = infer(
-        checkpoint, x_test, raw_names, test_ids, top_rate_override=args.top_rate
+    y_pred = ensemble.predict(x_test, raw_names, top_rate_override=args.top_rate)
+    pos_cnt = int(np.sum(y_pred == 1))
+    print(
+        f"[{time.time() - t0:5.1f}s] Inference complete: {pos_cnt} positive predictions ({pos_cnt / len(y_pred):.2%})"
     )
 
     # 4. Save submission CSV
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     create_csv_submission(test_ids, y_pred, args.output)
-    pos_cnt = int(np.sum(y_pred == 1))
-    log(
-        t0,
-        f"Saved competition submission to {args.output} "
-        f"({pos_cnt} positives, {pos_cnt / len(y_pred):.2%})",
-    )
+    print(f"[{time.time() - t0:5.1f}s] Saved submission to {args.output}")
     print("=" * 70)
     print(f"Reproduction completed successfully in {time.time() - t0:.1f}s!")
     print("=" * 70)

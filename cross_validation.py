@@ -14,7 +14,6 @@ import time
 
 import numpy as np
 
-import gbm
 from implementations import reg_logistic_regression, ridge_regression, sigmoid
 from metrics import (
     accuracy,
@@ -22,7 +21,13 @@ from metrics import (
     precision_recall_f1,
     predict_labels,
 )
-import mlp
+from models import (
+    DEFAULT_GBM_PARAMS,
+    DEFAULT_MLP_PARAMS,
+    GradientBoostedTrees,
+    MLPEnsemble,
+    tree_features,
+)
 from preprocessing import (
     CLEAN_RATE,
     LEAKY_RATE,
@@ -231,15 +236,15 @@ def ensemble_scores(
     xc_tr, xc_te, enc_names = add_target_risk_encodings(y_tr, xc_tr, xc_te, names)
 
     # 2. Multi-Seed Gradient Boosted Trees (3-seed bagging)
-    tx_tr_gbm = gbm.tree_features(xc_tr, enc_names, tree_tr)
-    tx_te_gbm = gbm.tree_features(xc_te, enc_names, tree_te)
+    tx_tr_gbm = tree_features(xc_tr, enc_names, tree_tr)
+    tx_te_gbm = tree_features(xc_te, enc_names, tree_te)
     gbm_seeds = [seed + 42, seed + 43, seed + 44]
     s_gbm_list = []
     for s in gbm_seeds:
-        p = dict(gbm.DEFAULT_PARAMS, **(gbm_params or {}))
+        p = dict(DEFAULT_GBM_PARAMS, **(gbm_params or {}))
         p["seed"] = s
-        m = gbm.train(y_tr, tx_tr_gbm, p)
-        s_gbm_list.append(gbm.score(m, tx_te_gbm))
+        m = GradientBoostedTrees(**p).fit(tx_tr_gbm, y_tr)
+        s_gbm_list.append(m.predict_logits(tx_te_gbm))
     s_gbm = np.mean(s_gbm_list, axis=0)
 
     # 3. Neural networks on the pipeline matrix
@@ -251,7 +256,10 @@ def ensemble_scores(
         mean, std = fit_standardizer(flags_tr)
         tx_tr = np.hstack([tx_tr, standardize(flags_tr, mean, std)])
         tx_te = np.hstack([tx_te, standardize(flags_te, mean, std)])
-    s_mlp = mlp.score(mlp.train(y_tr, tx_tr, mlp_params), tx_te)
+    mlp_p = dict(DEFAULT_MLP_PARAMS, **(mlp_params or {}))
+    mlp_p["seed"] = seed
+    mlp_model = MLPEnsemble(**mlp_p).fit(tx_tr, y_tr)
+    s_mlp = mlp_model.predict_logits(tx_te)
 
     # 4. Ensemble blending
     scores = gbm_weight * s_gbm + (1.0 - gbm_weight) * s_mlp

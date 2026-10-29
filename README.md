@@ -41,12 +41,12 @@ We implement the 6 course-mandated optimization methods from scratch:
 
 *All 27 public autograder tests in `../grading_tests/` pass with 100% compliance.*
 
-### Advanced Models (`gbm.py`, `mlp.py`)
-* **Gradient Boosted Decision Trees (`gbm.py`):** Pure-NumPy Histogram Gradient Boosting with 64 bins, depth 5, and Newton leaf updates. Bagged over 3 random seeds.
-* **Multi-Layer Perceptron (`mlp.py`):** Pure-NumPy Neural Network with 64 ReLU hidden units, Adam optimizer, and weight decay, averaged over 10 random initialization seeds.
-* **Ensemble:** Score blend of $0.50 \times \text{GBM} + 0.50 \times \text{MLP}$ with calibrated decision threshold.
+### Advanced Models (`models.py`)
+* **Gradient Boosted Decision Trees (`models.py`):** Pure-NumPy Histogram Gradient Boosting with 64 bins, depth 5, and Newton leaf updates. Bagged over 3 random seeds.
+* **Multi-Layer Perceptron (`models.py`):** Pure-NumPy Neural Network with 64 ReLU hidden units, Adam optimizer, and weight decay, averaged over 10 random initialization seeds.
+* **Ensemble (`models.py`):** Score blend of $0.50 \times \text{GBM} + 0.50 \times \text{MLP}$ with calibrated decision threshold.
 
-### Validation Protocol (`cross_validation.py`, `cv_final.py`)
+### Validation Protocol (`cross_validation.py`)
 * Stratified 5-Fold Cross-Validation preserves the exact 8.83% positive ratio in every fold.
 * Decision threshold $\tau^*$ is calibrated strictly on training folds to maximize $F_1$.
 
@@ -114,13 +114,10 @@ python run.py --train
 ### Running Validation & Tests
 ```bash
 # Run 5-fold cross-validation on the final ensemble
-python cv_final.py
+python cross_validation.py
 
 # Run unit tests
 pytest tests/
-
-# Run EPFL course autograder tests
-./run_public_tests.sh
 ```
 
 ---
@@ -131,17 +128,13 @@ pytest tests/
 ML_Project1/
 ├── README.md                      # Executive overview, pipeline description & quickstart
 ├── implementations.py             # 6 course required baseline methods (GD, SGD, LS, Ridge, Logistic, Reg-Logistic)
-├── run.py                         # Fast inference submission generator using pretrained weights (~15s)
+├── run.py                         # Fast reproducible inference generator using pretrained weights (~12s)
 ├── train.py                       # Complete training harness from scratch with weight export (~4m)
-├── model_io.py                    # Safe, portable pure-NumPy model serialization (allow_pickle=False)
-├── cv_final.py                    # 5-fold cross-validation runner for the final ensemble
-├── cross_validation.py            # Stratified K-fold split & threshold calibration harness
-├── gbm.py                         # Pure-NumPy Histogram Gradient Boosted Decision Trees
-├── mlp.py                         # Pure-NumPy Multi-Seed Multi-Layer Perceptron (Adam)
-├── preprocessing.py               # BRFSS survey cleaning, imputation & feature pipeline
+├── models.py                      # Unified OOP estimators (GradientBoostedTrees, MLPEnsemble, CardiacEnsemble)
+├── cross_validation.py            # Stratified K-fold CV and 80/20 holdout evaluation harness
+├── preprocessing.py               # OOP feature cleaning (BRFSSCleaner, TargetRiskEncoder, TabularPreprocessor)
 ├── metrics.py                     # Accuracy, precision, recall, F1-score & confusion matrix
 ├── helpers.py                     # CSV streaming loaders & submission export utilities
-├── run_public_tests.sh            # Public autograder test runner script
 │
 ├── weights/                       # Pretrained model checkpoints (pure-NumPy .npz archives)
 │   ├── clean_model.npz            # Track A Clean SOTA weights (3 GBM seeds + 10 MLP nets)

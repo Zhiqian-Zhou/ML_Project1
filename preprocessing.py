@@ -1138,3 +1138,74 @@ def transform(xc, state):
         z_prod = standardize(products, state["mean2"], state["std2"])
         return add_bias(np.hstack([z, z_prod]))
     return add_bias(z)
+
+
+# ==============================================================================
+# Object-Oriented Preprocessing Classes
+# ==============================================================================
+
+
+class BRFSSCleaner:
+    """CDC BRFSS survey data cleaner and feature engineering transformer."""
+
+    def __init__(self, spec=None, keep_raw=("_STATE",)):
+        self.spec = spec or load_feature_spec()
+        self.keep_raw = keep_raw
+
+    def clean(self, x_raw, feature_names):
+        """Clean raw survey matrix according to codebook and sentinel specifications."""
+        return clean_data(x_raw, feature_names, spec=self.spec, keep_raw=self.keep_raw)
+
+    def extract_leaky(self, x_raw, feature_names):
+        """Extract cardiac event post-treatment questions (Track B exploration)."""
+        return leaky_features(x_raw, feature_names)
+
+
+class TargetRiskEncoder:
+    """Empirical Bayes smoothed target risk encoder for high-cardinality categorical features."""
+
+    def __init__(self, target_columns=TARGET_ENC_COLUMNS):
+        self.target_columns = target_columns
+        self.tables_ = None
+        self.encoded_feature_names_ = None
+
+    def fit(self, y, xc_train, names):
+        """Learn smoothed conditional risk tables on training folds."""
+        self.tables_, self.encoded_feature_names_ = fit_target_risk_encodings(
+            y, xc_train, names, self.target_columns
+        )
+        return self
+
+    def transform(self, xc, names):
+        """Project survey categories to empirical risk rates."""
+        return apply_target_risk_encodings(xc, names, self.tables_)
+
+    def fit_transform(self, y, xc_train, names):
+        """Fit risk encoder and project training design matrix."""
+        self.fit(y, xc_train, names)
+        xc_enc, names_enc = self.transform(xc_train, names)
+        return xc_enc, names_enc
+
+
+class TabularPreprocessor:
+    """Feature pipeline for imputation, one-hot encoding, and standard scaling."""
+
+    def __init__(self, config=None):
+        self.config = merge_config(config)
+        self.state_ = None
+
+    def fit(self, xc_train, names, y=None):
+        """Fit imputation values, one-hot categories, and scaling statistics."""
+        self.state_ = fit_preprocessor(xc_train, names, self.config, y=y)
+        return self
+
+    def transform(self, xc):
+        """Transform arbitrary survey respondents using fitted statistics."""
+        return transform(xc, self.state_)
+
+    def fit_transform(self, xc_train, names, y=None):
+        """Fit preprocessor and transform training observations."""
+        self.state_, tx = fit_preprocessor(
+            xc_train, names, self.config, y=y, return_train=True
+        )
+        return tx

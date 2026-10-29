@@ -7,8 +7,7 @@ from unittest.mock import patch
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import gbm
-import mlp
+import models
 import run
 
 
@@ -24,37 +23,39 @@ def test_refit_uses_all_rows_and_fixed_selected_rounds():
     """The refit consumes all training rows, with no second early-stop set."""
     x, y = fixture()
     calls = []
-    original = gbm.boost
+    original = models.boost
 
     def observe(xb, y01, xv, yv, p):
         calls.append((len(y01), xv is None, p["n_trees"]))
         return original(xb, y01, xv, yv, p)
 
     params = dict(n_trees=8, max_depth=2, min_leaf=3, n_bins=8, refit_full=True)
-    with patch.object(gbm, "boost", side_effect=observe):
-        model = gbm.train(y, x, params)
+    with patch.object(models, "boost", side_effect=observe):
+        model = models.train_gbm(y, x, params)
     assert calls[0][0] < len(y)
     assert calls[1] == (len(y), True, model["selected_rounds"])
     assert len(model["trees"]) == model["selected_rounds"]
     assert model["training_rows"] == len(y)
-    repeated = gbm.train(y, x, params)
-    np.testing.assert_array_equal(gbm.score(model, x), gbm.score(repeated, x))
+    repeated = models.train_gbm(y, x, params)
+    np.testing.assert_array_equal(
+        models.score_gbm(model, x), models.score_gbm(repeated, x)
+    )
 
 
 def test_refit_pilot_bins_only_see_inner_training():
     """Bin fitting in the pilot excludes the inner early-stop rows."""
     x, y = fixture()
-    tr, va = gbm.stratified_split(y, 0.2, 42)
+    tr, va = models.stratified_split(y, 0.2, 42)
     x[va, 0] = 1e6
     calls = []
-    original = gbm.fit_bins
+    original = models.fit_bins
 
     def observe(data, bins):
         calls.append(data[:, 0].max())
         return original(data, bins)
 
-    with patch.object(gbm, "fit_bins", side_effect=observe):
-        gbm.train(y, x, dict(n_trees=3, n_bins=8, min_leaf=3, refit_full=True))
+    with patch.object(models, "fit_bins", side_effect=observe):
+        models.train_gbm(y, x, dict(n_trees=3, n_bins=8, min_leaf=3, refit_full=True))
     assert calls[0] < 1e6
     assert calls[1] == 1e6
 
@@ -63,9 +64,10 @@ def test_default_remains_non_refitted():
     """The legacy training-row count and prediction behavior remain the default."""
     x, y = fixture()
     p = dict(n_trees=4, n_bins=8, min_leaf=3)
-    a, b = gbm.train(y, x, p), gbm.train(y, x, dict(p, refit_full=False))
+    a = models.train_gbm(y, x, p)
+    b = models.train_gbm(y, x, dict(p, refit_full=False))
     assert a["training_rows"] < len(y)
-    np.testing.assert_array_equal(gbm.score(a, x), gbm.score(b, x))
+    np.testing.assert_array_equal(models.score_gbm(a, x), models.score_gbm(b, x))
 
 
 def test_network_split_diversity_and_reproducibility():
@@ -81,8 +83,8 @@ def test_network_split_diversity_and_reproducibility():
             calls.append(valid[:, 0].copy())
             return []
 
-        with patch.object(mlp, "train_one", side_effect=observe):
-            mlp.train(y, x, dict(n_seeds=3, split_per_seed=varied))
+        with patch.object(models, "train_one", side_effect=observe):
+            models.train_mlp(y, x, dict(n_seeds=3, split_per_seed=varied))
         return calls
 
     shared, varied = gather(False), gather(True)
