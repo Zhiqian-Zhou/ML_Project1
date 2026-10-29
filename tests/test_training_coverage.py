@@ -68,6 +68,17 @@ def test_default_remains_non_refitted():
     np.testing.assert_array_equal(gbm.score(a, x), gbm.score(b, x))
 
 
+def test_gbm_state_encoding_excludes_each_training_label():
+    codes = np.ones(10)
+    y = np.array([0, 1] * 5, dtype=float)
+    before = gbm.fit_oof_target_encoding(codes, y, 50)
+    flipped = y.copy()
+    flipped[0] = 1
+    after = gbm.fit_oof_target_encoding(codes, flipped, 50)
+    assert before[0] == after[0]
+    assert np.any(before[1:] != after[1:])
+
+
 def test_network_split_diversity_and_reproducibility():
     """Every split is disjoint; opt-in seed variation changes excluded rows."""
     x = np.arange(100, dtype=float)[:, None]
@@ -92,11 +103,21 @@ def test_network_split_diversity_and_reproducibility():
         np.testing.assert_array_equal(a, b)
 
 
-def test_experimental_cli_does_not_overwrite_champion_output():
-    """Experimental default output names differ from the production filename."""
-    with patch.object(sys, "argv", ["run.py", "--with_leakage"]):
+def test_leaky_default_and_experimental_output_paths():
+    """The leaky default and experimental outputs avoid archived submissions."""
+    with patch.object(sys, "argv", ["run.py"]):
         baseline = run.parse_args()
-    with patch.object(sys, "argv", ["run.py", "--with_leakage", "--gbm_refit_full"]):
+    with patch.object(sys, "argv", ["run.py", "--gbm_refit_full"]):
         experimental = run.parse_args()
+    with patch.object(sys, "argv", ["run.py", "--clean"]):
+        clean = run.parse_args()
+    with patch.object(sys, "argv", ["run.py", "--train"]):
+        retrained = run.parse_args()
+    assert baseline.with_leakage and baseline.weights == run.DEFAULT_WEIGHTS_LEAKY
+    assert not clean.with_leakage and clean.weights == run.DEFAULT_WEIGHTS_CLEAN
+    assert retrained.with_leakage
+    assert retrained.weights.endswith("leaky_model_corrected.npz")
+    assert "submissions" not in baseline.output
+    assert "submissions" not in retrained.output
     assert baseline.output != experimental.output
     assert experimental.variant_tag == "_gbm_refit"
